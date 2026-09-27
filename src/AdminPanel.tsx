@@ -1,9 +1,18 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, BadgeCheck, Check, Clock3, Cloud, Crown, Eye, Gamepad2, Globe2, LoaderCircle, Radio, RefreshCw, Search, Shield, ShieldOff, Swords, Trash2, UsersRound, X } from 'lucide-react';
-import { approveStreamerRequest, deletePlayerProfile, getSiteVisitStats, grantPremiumAccess, listAdminProfiles, listLiveGames, listPremiumRequests, listStreamerRequests, rejectStreamerRequest, revokePremiumAccess, setAdminAccess, type AdminProfile, type LiveGame, type PremiumRequest, type SiteVisitStats, type StreamerRequest } from './firebase-store';
+import { approveStreamerRequest, deletePlayerProfile, getSiteVisitStats, grantPremiumAccess, listAdminProfiles, listApprovedStreamers, listLiveGames, listPremiumRequests, listStreamerRequests, rejectStreamerRequest, revokePremiumAccess, revokeStreamerAccess, setAdminAccess, type AdminProfile, type ApprovedStreamer, type LiveGame, type PremiumRequest, type SiteVisitStats, type StreamerRequest } from './firebase-store';
 import { AutoTranslate, useI18n } from './i18n';
 
 type Props = { currentUid: string; onExit: () => void };
+
+function safeStreamerChannelUrl(value: string): string | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
 
 function AdminPanel({ currentUid, onExit }: Props) {
   const { language } = useI18n();
@@ -23,17 +32,19 @@ function AdminPanel({ currentUid, onExit }: Props) {
   const [premiumRequests, setPremiumRequests] = useState<PremiumRequest[]>([]);
   const [premiumUids, setPremiumUids] = useState<string[]>([]);
   const [streamerRequests, setStreamerRequests] = useState<StreamerRequest[]>([]);
+  const [approvedStreamers, setApprovedStreamers] = useState<ApprovedStreamer[]>([]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [result, requests, streamers] = await Promise.all([listAdminProfiles(), listPremiumRequests(), listStreamerRequests()]);
+      const [result, requests, streamers, approved] = await Promise.all([listAdminProfiles(), listPremiumRequests(), listStreamerRequests(), listApprovedStreamers()]);
       setProfiles(result);
       setAdminUids(result.filter((profile) => profile.isAdmin).map((profile) => profile.uid));
       setPremiumRequests(requests);
       setPremiumUids(result.filter((profile) => profile.isPremium).map((profile) => profile.uid));
       setStreamerRequests(streamers);
+      setApprovedStreamers(approved);
     } catch {
       setError('Nem sikerült betölteni a felhasználókat. Ellenőrizd az admin Firestore-szabályokat.');
     } finally {
@@ -126,7 +137,12 @@ function AdminPanel({ currentUid, onExit }: Props) {
 
   async function approveStreamer(request: StreamerRequest) {
     setBusyUid(request.uid); setError(''); setNotice('');
-    try { await approveStreamerRequest(request); setStreamerRequests((current) => current.filter((item) => item.uid !== request.uid)); setNotice(`Streamer hozzáférés aktiválva: ${request.email}`); }
+    try {
+      await approveStreamerRequest(request);
+      setStreamerRequests((current) => current.filter((item) => item.uid !== request.uid));
+      setApprovedStreamers((current) => [...current.filter((item) => item.uid !== request.uid), { uid: request.uid, displayName: request.displayName, platform: request.platform, channelUrl: request.channelUrl, isPubliclyListed: request.publicListingAccepted }].sort((left, right) => left.displayName.localeCompare(right.displayName)));
+      setNotice(`Streamer hozzáférés aktiválva: ${request.email}`);
+    }
     catch { setError('Nem sikerült jóváhagyni a streamer-jelentkezést. Ellenőrizd a Firestore-szabályokat.'); }
     finally { setBusyUid(''); }
   }
@@ -137,6 +153,21 @@ function AdminPanel({ currentUid, onExit }: Props) {
     try { await rejectStreamerRequest(uid); setStreamerRequests((current) => current.filter((item) => item.uid !== uid)); setNotice('Streamer-jelentkezés elutasítva.'); }
     catch { setError('Nem sikerült elutasítani a jelentkezést.'); }
     finally { setBusyUid(''); }
+  }
+
+  async function revokeStreamer(streamer: ApprovedStreamer) {
+    const confirmation = language === 'en'
+      ? `Revoke streamer access for ${streamer.displayName}? This also removes them from the public directory.`
+      : `Visszavonod ${streamer.displayName} streamer-jogosultságát? Ezzel a nyilvános listáról is eltávolítod.`;
+    if (!window.confirm(confirmation)) return;
+    setBusyUid(streamer.uid); setError(''); setNotice('');
+    try {
+      await revokeStreamerAccess(streamer.uid);
+      setApprovedStreamers((current) => current.filter((item) => item.uid !== streamer.uid));
+      setNotice(language === 'en' ? `Streamer access revoked: ${streamer.displayName}` : `Streamer-jogosultság visszavonva: ${streamer.displayName}`);
+    } catch {
+      setError('Nem sikerült visszavonni a streamer-jogosultságot. Ellenőrizd a Firestore admin szabályait.');
+    } finally { setBusyUid(''); }
   }
 
   async function grantPremiumToProfile(profile: AdminProfile) {
@@ -229,7 +260,13 @@ function AdminPanel({ currentUid, onExit }: Props) {
       </section>
       <section className="admin-streamer-card">
         <div className="admin-users-head"><div><span className="section-kicker">STREAMER PROGRAM</span><h2><Radio size={19} /> Jelentkezések <small>{streamerRequests.length}</small></h2><p>Ellenőrizd a csatornát, majd hagyd jóvá vagy utasítsd el a kérelmet.</p></div><button className="admin-refresh" onClick={() => void refresh()} disabled={loading}><RefreshCw size={15} className={loading ? 'admin-spinning' : ''} /> Frissítés</button></div>
-        {streamerRequests.length === 0 ? <div className="admin-empty">Nincs függő streamer-jelentkezés.</div> : <div className="admin-streamer-requests">{streamerRequests.map((request) => <article className="admin-streamer-request" key={request.uid}><div><strong>{request.displayName}</strong><small>{request.email} · {request.platform}</small><a href={request.channelUrl} target="_blank" rel="noreferrer">{request.channelUrl}</a>{request.message && <p>{request.message}</p>}</div><div className="admin-streamer-actions"><button className="admin-approve-premium" onClick={() => void approveStreamer(request)} disabled={busyUid === request.uid}><BadgeCheck size={15} /> Jóváhagyás</button><button className="admin-streamer-reject" onClick={() => void rejectStreamer(request.uid)} disabled={busyUid === request.uid}><X size={15} /> Elutasítás</button></div></article>)}</div>}
+        {streamerRequests.length === 0 ? <div className="admin-empty">Nincs függő streamer-jelentkezés.</div> : <div className="admin-streamer-requests">{streamerRequests.map((request) => <article className="admin-streamer-request" key={request.uid}><div><strong>{request.displayName}</strong><small>{request.email} · {request.platform}</small><small>{request.publicListingAccepted ? 'Nyilvános listázás: hozzájárult' : 'Nyilvános listázás: nincs hozzájárulás; jóváhagyáskor nem kerül a listába'}</small><a href={request.channelUrl} target="_blank" rel="noreferrer">{request.channelUrl}</a>{request.message && <p>{request.message}</p>}</div><div className="admin-streamer-actions"><button className="admin-approve-premium" onClick={() => void approveStreamer(request)} disabled={busyUid === request.uid}><BadgeCheck size={15} /> Jóváhagyás</button><button className="admin-streamer-reject" onClick={() => void rejectStreamer(request.uid)} disabled={busyUid === request.uid}><X size={15} /> Elutasítás</button></div></article>)}</div>}
+      </section>
+      <section className="admin-approved-streamer-card">
+        <div className="admin-users-head"><div><span className="section-kicker">STREAMER PROGRAM</span><h2><BadgeCheck size={19} /> Jóváhagyott streamerek <small>{approvedStreamers.length}</small></h2><p>Az aktív streamer-jogosultságok kezelése. Visszavonáskor a nyilvános listáról is törlődik a csatorna.</p></div><button className="admin-refresh" onClick={() => void refresh()} disabled={loading}><RefreshCw size={15} className={loading ? 'admin-spinning' : ''} /> Frissítés</button></div>
+        {approvedStreamers.length === 0 ? <div className="admin-empty">Nincs jóváhagyott streamer.</div> : <div className="admin-approved-streamers">{approvedStreamers.map((streamer) => { const channelUrl = safeStreamerChannelUrl(streamer.channelUrl); return <article className="admin-approved-streamer" key={streamer.uid}><div className="admin-approved-streamer-copy"><strong>{streamer.displayName}</strong><small>{streamer.platform || 'Platform nincs megadva'}</small><small>{streamer.isPubliclyListed ? 'Megjelenik a nyilvános streamerlistában' : 'Nincs nyilvános listázási hozzájárulás'}</small>{channelUrl && <a href={channelUrl} target="_blank" rel="noopener noreferrer">{streamer.channelUrl}</a>}</div><button className="admin-revoke-streamer" onClick={() => void revokeStreamer(streamer)} disabled={busyUid === streamer.uid}>{busyUid === streamer.uid ? <LoaderCircle size={15} className="admin-spinning" /> : <ShieldOff size={15} />}<span>Streamer-jog visszavonása</span></button></article>; })}</div>}
+        {error && <div className="admin-feedback admin-error" role="alert"><X size={15} />{error}</div>}
+        {notice && <div className="admin-feedback admin-success"><Check size={15} />{notice}</div>}
       </section>
       <section className="admin-live-card">
         <div className="admin-users-head">

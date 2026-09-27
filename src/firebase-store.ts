@@ -1,4 +1,4 @@
-import { collection, deleteDoc, doc, getDoc, getDocs, getFirestore, increment, limit, orderBy, query, serverTimestamp, setDoc } from 'firebase/firestore/lite';
+import { collection, deleteDoc, doc, getDoc, getDocs, getFirestore, increment, limit, orderBy, query, serverTimestamp, setDoc, writeBatch } from 'firebase/firestore/lite';
 import { auth, firebaseConfigured, type CloudProfile } from './firebase';
 import type { User } from 'firebase/auth';
 import { defaultAvatar, isAvatar } from './avatars';
@@ -115,7 +115,42 @@ export async function hasPendingPremiumRequest(user: User): Promise<boolean> {
   return request.exists();
 }
 
-export type StreamerRequest = { uid: string; displayName: string; email: string; platform: string; channelUrl: string; message: string; requestedAt: Date | null };
+export type StreamerRequest = { uid: string; displayName: string; email: string; platform: string; channelUrl: string; message: string; publicListingAccepted: boolean; requestedAt: Date | null };
+
+export type StreamerDirectoryEntry = { id: string; displayName: string; platform: string; channelUrl: string };
+export type ApprovedStreamer = { uid: string; displayName: string; platform: string; channelUrl: string; isPubliclyListed: boolean };
+
+export async function listApprovedStreamers(): Promise<ApprovedStreamer[]> {
+  if (!firebaseConfigured || !auth) throw new Error('A streamerjogosultságok felhőszolgáltatása nincs beállítva.');
+  const snapshots = await getDocs(collection(getFirestore(auth.app), 'streamerEntitlements'));
+  return snapshots.docs
+    .filter((snapshot) => snapshot.data().active === true)
+    .map((snapshot) => {
+      const data = snapshot.data();
+      return {
+        uid: snapshot.id,
+        displayName: typeof data.displayName === 'string' ? data.displayName : 'Játékos',
+        platform: typeof data.platform === 'string' ? data.platform : '',
+        channelUrl: typeof data.channelUrl === 'string' ? data.channelUrl : '',
+        isPubliclyListed: data.publicListingAccepted === true,
+      };
+    })
+    .sort((left, right) => left.displayName.localeCompare(right.displayName));
+}
+
+export async function listStreamerDirectory(): Promise<StreamerDirectoryEntry[]> {
+  if (!firebaseConfigured || !auth) throw new Error('A streamerlista felhőszolgáltatása nincs beállítva.');
+  const snapshots = await getDocs(query(collection(getFirestore(auth.app), 'streamerDirectory'), orderBy('displayName', 'asc'), limit(100)));
+  return snapshots.docs.map((snapshot) => {
+    const data = snapshot.data();
+    return {
+      id: snapshot.id,
+      displayName: typeof data.displayName === 'string' ? data.displayName : 'Streamer',
+      platform: typeof data.platform === 'string' ? data.platform : '',
+      channelUrl: typeof data.channelUrl === 'string' ? data.channelUrl : '',
+    };
+  });
+}
 
 export async function hasStreamerAccess(user: User): Promise<boolean> {
   if (!firebaseConfigured || !auth) return false;
@@ -128,14 +163,16 @@ export async function hasPendingStreamerRequest(user: User): Promise<boolean> {
   return (await getDoc(doc(getFirestore(auth.app), 'streamerRequests', user.uid))).exists();
 }
 
-export async function requestStreamerReview(user: User, request: { platform: string; channelUrl: string; message: string }): Promise<void> {
+export async function requestStreamerReview(user: User, request: { platform: string; channelUrl: string; message: string; publicListingAccepted: boolean }): Promise<void> {
   if (!firebaseConfigured || !auth || auth.currentUser?.uid !== user.uid || !user.email) throw new Error('A jelentkezéshez jelentkezz be e-mail-címmel.');
+  if (!request.publicListingAccepted) throw new Error('A nyilvános streamerlistához való hozzájárulás szükséges.');
   await setDoc(doc(getFirestore(auth.app), 'streamerRequests', user.uid), {
     displayName: user.displayName?.trim().slice(0, 32) || `Játékos ${user.uid.slice(-4)}`,
     email: user.email,
     platform: request.platform,
     channelUrl: request.channelUrl.slice(0, 300),
     message: request.message.slice(0, 300),
+    publicListingAccepted: true,
     requestedAt: serverTimestamp(),
   });
 }
@@ -145,20 +182,39 @@ export async function listStreamerRequests(): Promise<StreamerRequest[]> {
   return (await getDocs(collection(getFirestore(auth.app), 'streamerRequests'))).docs.map((snapshot) => {
     const data = snapshot.data();
     const timestamp = data.requestedAt;
-    return { uid: snapshot.id, displayName: String(data.displayName ?? 'Játékos'), email: String(data.email ?? ''), platform: String(data.platform ?? ''), channelUrl: String(data.channelUrl ?? ''), message: String(data.message ?? ''), requestedAt: timestamp && typeof timestamp.toDate === 'function' ? timestamp.toDate() as Date : null };
+    return { uid: snapshot.id, displayName: String(data.displayName ?? 'Játékos'), email: String(data.email ?? ''), platform: String(data.platform ?? ''), channelUrl: String(data.channelUrl ?? ''), message: String(data.message ?? ''), publicListingAccepted: data.publicListingAccepted === true, requestedAt: timestamp && typeof timestamp.toDate === 'function' ? timestamp.toDate() as Date : null };
   });
 }
 
-export async function approveStreamerRequest(request: Pick<StreamerRequest, 'uid' | 'displayName' | 'platform' | 'channelUrl'>): Promise<void> {
+export async function approveStreamerRequest(request: Pick<StreamerRequest, 'uid' | 'displayName' | 'platform' | 'channelUrl' | 'publicListingAccepted'>): Promise<void> {
   if (!firebaseConfigured || !auth) throw new Error('A Firebase nincs beállítva.');
   const database = getFirestore(auth.app);
-  await setDoc(doc(database, 'streamerEntitlements', request.uid), { active: true, displayName: request.displayName, platform: request.platform, channelUrl: request.channelUrl, updatedAt: serverTimestamp() });
-  await deleteDoc(doc(database, 'streamerRequests', request.uid));
+  const batch = writeBatch(database);
+  const entitlementRef = doc(database, 'streamerEntitlements', request.uid);
+  const entitlement = { active: true, displayName: request.displayName, platform: request.platform, channelUrl: request.channelUrl, publicListingAccepted: request.publicListingAccepted, updatedAt: serverTimestamp() };
+  batch.set(entitlementRef, entitlement);
+  if (request.publicListingAccepted) {
+    const directoryRef = doc(database, 'streamerDirectory', request.uid);
+    batch.set(directoryRef, { displayName: request.displayName, platform: request.platform, channelUrl: request.channelUrl });
+  } else {
+    batch.delete(doc(database, 'streamerDirectory', request.uid));
+  }
+  batch.delete(doc(database, 'streamerRequests', request.uid));
+  await batch.commit();
 }
 
 export async function rejectStreamerRequest(uid: string): Promise<void> {
   if (!firebaseConfigured || !auth) throw new Error('A Firebase nincs beállítva.');
   await deleteDoc(doc(getFirestore(auth.app), 'streamerRequests', uid));
+}
+
+export async function revokeStreamerAccess(uid: string): Promise<void> {
+  if (!firebaseConfigured || !auth) throw new Error('A Firebase nincs beállítva.');
+  const database = getFirestore(auth.app);
+  const batch = writeBatch(database);
+  batch.delete(doc(database, 'streamerEntitlements', uid));
+  batch.delete(doc(database, 'streamerDirectory', uid));
+  await batch.commit();
 }
 
 export async function requestPremiumReview(user: User): Promise<void> {

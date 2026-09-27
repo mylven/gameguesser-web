@@ -9,6 +9,7 @@ import './group-room.css';
 import './account.css';
 import './account-status.css';
 import './admin.css';
+import './admin-streamers.css';
 import './leaderboard.css';
 import './premium.css';
 import './gamer-theme.css';
@@ -18,6 +19,7 @@ import './responsive.css';
 import './visits.css';
 import './duel-leaderboard.css';
 import './streamer.css';
+import './streamer-directory.css';
 import { I18nProvider } from './i18n';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
