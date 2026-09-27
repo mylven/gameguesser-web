@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { ArrowLeft, ArrowRight, Check, Crown, Flame, Gamepad2, Lightbulb, MessageCircle, Palette, RotateCcw, Sparkles, Swords, Trophy, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Crown, Flame, Gamepad2, Lightbulb, MessageCircle, Palette, Radio, RotateCcw, Sparkles, Swords, Trophy, X } from 'lucide-react';
 import { categories, games, loadGameCatalog, refreshGameCatalog, steamAppIds, type Game, type GameCategory } from './games';
 import { localizeGame } from './game-localization';
 import { defaultAvatar, isAvatar, type AvatarId } from './avatars';
@@ -14,9 +14,10 @@ import { AutoTranslate, useI18n } from './i18n';
 const AdminPanel = lazy(() => import('./AdminPanel'));
 const LeaderboardPanel = lazy(() => import('./Leaderboard'));
 const PremiumPanel = lazy(() => import('./PremiumPanel'));
+const StreamerPanel = lazy(() => import('./StreamerPanel'));
 
 type ModeId = 'emoji' | 'clues' | 'features' | 'image' | 'marathon' | 'survival';
-type Screen = 'home' | 'playing' | 'complete' | 'duel' | 'admin' | 'leaderboard' | 'premium';
+type Screen = 'home' | 'playing' | 'complete' | 'duel' | 'admin' | 'leaderboard' | 'premium' | 'streamer';
 type Stats = { gamesPlayed: number; questionsPlayed: number; correct: number; bestStreak: number; bestScore: number; totalScore: number };
 type Round = { game: Game; choices: Game[] };
 type GameProgress = { mode: ModeId; category: 'Mind' | GameCategory; rounds: Round[]; roundIndex: number; answer: string | null; wrongAnswers: string[]; revealedHints: number; score: number; streak: number; roundCorrect: number };
@@ -129,6 +130,8 @@ function App() {
   const [premiumRequestPending, setPremiumRequestPending] = useState(false);
   const [premiumRequestBusy, setPremiumRequestBusy] = useState(false);
   const [premiumRequestMessage, setPremiumRequestMessage] = useState('');
+  const [streamerApproved, setStreamerApproved] = useState(false);
+  const [streamerRequestPending, setStreamerRequestPending] = useState(false);
   const [authReady, setAuthReady] = useState(!auth);
   const [profileReady, setProfileReady] = useState(false);
   const [profileOwner, setProfileOwner] = useState<string | null>(null);
@@ -212,12 +215,16 @@ function App() {
     setIsPremium(false);
     setPremiumRequestPending(false);
     setPremiumRequestMessage('');
+    setStreamerApproved(false);
+    setStreamerRequestPending(false);
     if (!user || !firebaseConfigured) return () => { active = false; };
-    void Promise.all([hasPremiumAccess(user), hasPendingPremiumRequest(user)])
-      .then(([premium, pending]) => {
+    void Promise.all([hasPremiumAccess(user), hasPendingPremiumRequest(user), import('./firebase-store').then(({ hasStreamerAccess, hasPendingStreamerRequest }) => Promise.all([hasStreamerAccess(user), hasPendingStreamerRequest(user)]))])
+      .then(([premium, pending, streamer]) => {
         if (!active) return;
         setIsPremium(premium);
         setPremiumRequestPending(pending);
+        setStreamerApproved(streamer[0]);
+        setStreamerRequestPending(streamer[1]);
       })
       .catch(() => { if (active) setIsPremium(false); });
     return () => { active = false; };
@@ -448,6 +455,10 @@ function App() {
     }
   }
 
+  function markStreamerSubmitted() {
+    setStreamerRequestPending(true);
+  }
+
   function togglePremiumTheme() {
     if (!isPremium) {
       setScreen('premium');
@@ -497,6 +508,7 @@ function App() {
           <button className="leaderboard-nav" onClick={() => setScreen('leaderboard')} aria-label="Ranglista megnyitása"><Trophy size={16} /><span>Ranglista</span></button>
           <a className="topbar-discord-link" href="https://discord.gg/8rDPHVJnqz" target="_blank" rel="noopener noreferrer" aria-label={language === 'en' ? 'Join our Discord server' : 'Csatlakozz a Discord-szerverünkhöz'} title={language === 'en' ? 'Join our Discord server' : 'Csatlakozz a Discord-szerverünkhöz'}><MessageCircle size={15} /><span>Discord</span></a>
           <button className={`premium-nav ${isPremium ? 'is-premium' : ''}`} onClick={() => setScreen('premium')} aria-label="GameGuesser Premium"><Crown size={15} /><span>{isPremium ? 'Premium' : 'Premium'}</span></button>
+          <button className="streamer-nav" onClick={() => setScreen('streamer')} aria-label="Streamer Program"><Radio size={15} /><span>Streamer</span></button>
           {user ? <button className="profile-chip account-chip" onClick={() => setAccountOpen(true)} aria-label="Fiók beállításai"><span className="avatar auth-avatar">{avatar}</span><span>{user.displayName || user.email || 'Fiókom'}</span></button> : <button className="profile-chip account-chip" onClick={() => setAccountOpen(true)} aria-label="Bejelentkezés vagy fiók létrehozása"><span className="avatar">{avatar}</span><span>Fiók létrehozása</span></button>}
         </div>
       </header>
@@ -563,6 +575,7 @@ function App() {
         {screen === 'admin' && isAdmin && user && <Suspense fallback={<div className="admin-loading"><span className="account-spinner">◌</span> Admin felület betöltése…</div>}><AdminPanel currentUid={user.uid} onExit={() => setScreen('home')} /></Suspense>}
         {screen === 'leaderboard' && <Suspense fallback={<div className="leaderboard-loading"><span className="account-spinner">◌</span> Ranglista betöltése…</div>}><LeaderboardPanel currentUid={user?.uid ?? null} onExit={() => setScreen('home')} /></Suspense>}
         {screen === 'premium' && <Suspense fallback={<div className="leaderboard-loading"><span className="account-spinner">◌</span> Premium betöltése…</div>}><PremiumPanel isSignedIn={!!user} isPremium={isPremium} requestPending={premiumRequestPending} requestBusy={premiumRequestBusy} requestMessage={premiumRequestMessage} onRequestReview={() => void submitPremiumRequest()} onSignIn={() => { setScreen('home'); setAccountOpen(true); }} onExit={() => setScreen('home')} /></Suspense>}
+        {screen === 'streamer' && <Suspense fallback={<div className="leaderboard-loading"><span className="account-spinner">◌</span> Streamer Program betöltése…</div>}><StreamerPanel isSignedIn={!!user} isApproved={streamerApproved} requestPending={streamerRequestPending} onSignIn={() => { setScreen('home'); setAccountOpen(true); }} onSubmitted={markStreamerSubmitted} onExit={() => setScreen('home')} /></Suspense>}
 
         {screen === 'playing' && currentRound && (
           <section className="game-screen">

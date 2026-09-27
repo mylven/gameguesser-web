@@ -115,6 +115,52 @@ export async function hasPendingPremiumRequest(user: User): Promise<boolean> {
   return request.exists();
 }
 
+export type StreamerRequest = { uid: string; displayName: string; email: string; platform: string; channelUrl: string; message: string; requestedAt: Date | null };
+
+export async function hasStreamerAccess(user: User): Promise<boolean> {
+  if (!firebaseConfigured || !auth) return false;
+  const entitlement = await getDoc(doc(getFirestore(auth.app), 'streamerEntitlements', user.uid));
+  return entitlement.exists() && entitlement.data().active === true;
+}
+
+export async function hasPendingStreamerRequest(user: User): Promise<boolean> {
+  if (!firebaseConfigured || !auth) return false;
+  return (await getDoc(doc(getFirestore(auth.app), 'streamerRequests', user.uid))).exists();
+}
+
+export async function requestStreamerReview(user: User, request: { platform: string; channelUrl: string; message: string }): Promise<void> {
+  if (!firebaseConfigured || !auth || auth.currentUser?.uid !== user.uid || !user.email) throw new Error('A jelentkezéshez jelentkezz be e-mail-címmel.');
+  await setDoc(doc(getFirestore(auth.app), 'streamerRequests', user.uid), {
+    displayName: user.displayName?.trim().slice(0, 32) || `Játékos ${user.uid.slice(-4)}`,
+    email: user.email,
+    platform: request.platform,
+    channelUrl: request.channelUrl.slice(0, 300),
+    message: request.message.slice(0, 300),
+    requestedAt: serverTimestamp(),
+  });
+}
+
+export async function listStreamerRequests(): Promise<StreamerRequest[]> {
+  if (!firebaseConfigured || !auth) throw new Error('A Firebase nincs beállítva.');
+  return (await getDocs(collection(getFirestore(auth.app), 'streamerRequests'))).docs.map((snapshot) => {
+    const data = snapshot.data();
+    const timestamp = data.requestedAt;
+    return { uid: snapshot.id, displayName: String(data.displayName ?? 'Játékos'), email: String(data.email ?? ''), platform: String(data.platform ?? ''), channelUrl: String(data.channelUrl ?? ''), message: String(data.message ?? ''), requestedAt: timestamp && typeof timestamp.toDate === 'function' ? timestamp.toDate() as Date : null };
+  });
+}
+
+export async function approveStreamerRequest(request: Pick<StreamerRequest, 'uid' | 'displayName' | 'platform' | 'channelUrl'>): Promise<void> {
+  if (!firebaseConfigured || !auth) throw new Error('A Firebase nincs beállítva.');
+  const database = getFirestore(auth.app);
+  await setDoc(doc(database, 'streamerEntitlements', request.uid), { active: true, displayName: request.displayName, platform: request.platform, channelUrl: request.channelUrl, updatedAt: serverTimestamp() });
+  await deleteDoc(doc(database, 'streamerRequests', request.uid));
+}
+
+export async function rejectStreamerRequest(uid: string): Promise<void> {
+  if (!firebaseConfigured || !auth) throw new Error('A Firebase nincs beállítva.');
+  await deleteDoc(doc(getFirestore(auth.app), 'streamerRequests', uid));
+}
+
 export async function requestPremiumReview(user: User): Promise<void> {
   if (!firebaseConfigured || !auth || auth.currentUser?.uid !== user.uid || !user.email) {
     throw new Error('A Premium-igényléshez jelentkezz be e-mail-címmel.');

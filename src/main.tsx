@@ -17,6 +17,7 @@ import './avatar.css';
 import './responsive.css';
 import './visits.css';
 import './duel-leaderboard.css';
+import './streamer.css';
 import { I18nProvider } from './i18n';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
