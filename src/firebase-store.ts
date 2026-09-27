@@ -112,7 +112,7 @@ export async function listPremiumRequests(): Promise<PremiumRequest[]> {
   }).sort((left, right) => (right.requestedAt?.getTime() ?? 0) - (left.requestedAt?.getTime() ?? 0));
 }
 
-export async function grantPremiumAccess(request: PremiumRequest): Promise<void> {
+export async function grantPremiumAccess(request: Pick<PremiumRequest, 'uid' | 'displayName'>): Promise<void> {
   if (!firebaseConfigured || !auth) throw new Error('A Firebase nincs beállítva.');
   const database = getFirestore(auth.app);
   await setDoc(doc(database, 'premiumEntitlements', request.uid), {

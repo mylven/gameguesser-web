@@ -104,6 +104,22 @@ function AdminPanel({ currentUid, onExit }: Props) {
     }
   }
 
+  async function grantPremiumToProfile(profile: AdminProfile) {
+    setBusyUid(profile.uid);
+    setError('');
+    setNotice('');
+    try {
+      await grantPremiumAccess({ uid: profile.uid, displayName: profile.displayName || `Játékos ${profile.uid.slice(-4)}` });
+      setPremiumUids((current) => current.includes(profile.uid) ? current : [...current, profile.uid]);
+      setPremiumRequests((current) => current.filter((request) => request.uid !== profile.uid));
+      setNotice(`Premium hozzáférést adtál: ${profile.email || profile.displayName || profile.uid}`);
+    } catch {
+      setError('Nem sikerült Premium-hozzáférést adni. Ellenőrizd, hogy a Premium Firestore-szabályok telepítve vannak-e.');
+    } finally {
+      setBusyUid('');
+    }
+  }
+
   async function removePremium(uid: string, email: string | null) {
     if (!window.confirm(`Visszavonod a Premium-hozzáférést ${email || uid} fiókjánál?`)) return;
     setBusyUid(uid);
@@ -197,8 +213,8 @@ function AdminPanel({ currentUid, onExit }: Props) {
               <td><strong>{profile.stats?.gamesPlayed ?? 0} kör</strong><small>{profile.stats?.correct ?? 0} helyes · {profile.stats?.bestScore ?? 0} rekordpont</small></td>
               <td>{profile.progress ? `${profile.progress.roundIndex + 1}. kérdés / ${profile.progress.rounds.length}` : 'Nincs'}</td>
               <td><span className={`admin-role ${isAdmin ? 'is-admin' : ''}`}>{isAdmin ? 'Admin' : 'Játékos'}</span></td>
-              <td><span className={`admin-role ${isPremium ? 'is-premium' : ''}`}>{isPremium ? 'Premium' : 'Ingyenes'}</span></td>
-              <td><div className="admin-actions"><button onClick={() => void toggleAdmin(profile)} disabled={busy || profile.uid === currentUid} title={profile.uid === currentUid ? 'Saját szerepkör nem módosítható' : isAdmin ? 'Admin jog visszavonása' : 'Admin jog megadása'}>{busy ? <LoaderCircle size={15} className="admin-spinning" /> : isAdmin ? <ShieldOff size={15} /> : <Shield size={15} />}<span>{isAdmin ? 'Jog visszavonása' : 'Adminná tesz'}</span></button>{isPremium && <button className="premium-revoke-action" onClick={() => void removePremium(profile.uid, profile.email)} disabled={busy}><Crown size={15} /><span>Premium visszavonása</span></button>}<button className="delete-profile-action" onClick={() => void removeProfile(profile)} disabled={busy || profile.uid === currentUid} title="Mentett játékprofil törlése"><Trash2 size={15} /><span>Profil törlése</span></button></div></td>
+              <td><div className="admin-premium-cell"><span className={`admin-role ${isPremium ? 'is-premium' : ''}`}>{isPremium ? 'Premium' : 'Ingyenes'}</span>{isPremium ? <button className="premium-revoke-action" onClick={() => void removePremium(profile.uid, profile.email)} disabled={busy}><Crown size={14} /><span>Visszavonás</span></button> : <button className="premium-grant-action" onClick={() => void grantPremiumToProfile(profile)} disabled={busy}>{busy ? <LoaderCircle size={14} className="admin-spinning" /> : <BadgeCheck size={14} />}<span>Premiumot ad</span></button>}</div></td>
+              <td><div className="admin-actions"><button onClick={() => void toggleAdmin(profile)} disabled={busy || profile.uid === currentUid} title={profile.uid === currentUid ? 'Saját szerepkör nem módosítható' : isAdmin ? 'Admin jog visszavonása' : 'Admin jog megadása'}>{busy ? <LoaderCircle size={15} className="admin-spinning" /> : isAdmin ? <ShieldOff size={15} /> : <Shield size={15} />}<span>{isAdmin ? 'Jog visszavonása' : 'Adminná tesz'}</span></button><button className="delete-profile-action" onClick={() => void removeProfile(profile)} disabled={busy || profile.uid === currentUid} title="Mentett játékprofil törlése"><Trash2 size={15} /><span>Profil törlése</span></button></div></td>
             </tr>;
           })}</tbody>
         </table></div>}
