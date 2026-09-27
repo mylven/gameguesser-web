@@ -30,7 +30,7 @@ type DuelMessage =
   | { type: 'start'; snapshot: DuelSnapshot }
   | { type: 'state'; snapshot: DuelSnapshot }
   | { type: 'answer'; title: string };
-type Props = { onExit: () => void };
+type Props = { ownerUid?: string; ownerName: string; onExit: () => void };
 
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const TIMEOUT_ANSWER = '__TIMEOUT__';
@@ -92,7 +92,7 @@ function makePeerOptions() {
   return { config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] } };
 }
 
-function DuelRoom({ onExit }: Props) {
+function DuelRoom({ ownerUid, ownerName, onExit }: Props) {
   const [stage, setStage] = useState<'setup' | 'room' | 'playing'>('setup');
   const [playerName, setPlayerName] = useState('Játékos');
   const [codeInput, setCodeInput] = useState('');
@@ -116,15 +116,41 @@ function DuelRoom({ onExit }: Props) {
   const roomPlayersRef = useRef<RoomPlayer[]>([]);
   const roomStartedRef = useRef(false);
   const snapshotRef = useRef<DuelSnapshot | null>(null);
+  const liveSessionIdRef = useRef<string | null>(null);
 
   useEffect(() => () => {
     connectionRef.current?.close();
     peerRef.current?.destroy();
-  }, []);
+    const liveSessionId = liveSessionIdRef.current;
+    if (ownerUid && liveSessionId) {
+      void import('./firebase-store').then(({ clearLiveGame }) => clearLiveGame(ownerUid, liveSessionId)).catch(() => undefined);
+    }
+  }, [ownerUid]);
+
+  function publishLiveSnapshot(current: DuelSnapshot) {
+    if (!ownerUid || !liveSessionIdRef.current || current.finished) return;
+    const currentRound = current.rounds[current.roundIndex];
+    if (!currentRound) return;
+    const scores = Object.fromEntries(current.players.map((player) => [player.name, current.scores[player.id] ?? 0]));
+    void import('./firebase-store').then(({ publishLiveGame }) => publishLiveGame(liveSessionIdRef.current!, {
+      ownerUid,
+      playerName: ownerName,
+      kind: 'multiplayer',
+      mode: duelModes.find((item) => item.id === current.settings.mode)?.title ?? current.settings.mode,
+      roundIndex: current.roundIndex,
+      totalRounds: current.rounds.length,
+      solution: currentRound.game.title,
+      roomCode,
+      roomType: current.roomType,
+      players: current.players.map((player) => player.name),
+      scores,
+    })).catch(() => undefined);
+  }
 
   function updateSnapshot(next: DuelSnapshot, sendToGuest = false) {
     snapshotRef.current = next;
     setSnapshot(next);
+    publishLiveSnapshot(next);
     if (sendToGuest) {
       connectionsRef.current.forEach((connection) => {
         if (connection.open) connection.send({ type: 'state', snapshot: next } satisfies DuelMessage);
@@ -312,6 +338,8 @@ function DuelRoom({ onExit }: Props) {
     const initial = makeInitialSnapshot(settings, connectedPlayers, roomType);
     snapshotRef.current = initial;
     setSnapshot(initial);
+    liveSessionIdRef.current = crypto.randomUUID();
+    publishLiveSnapshot(initial);
     roomStartedRef.current = true;
     setStage('playing');
     setStatus('A párbaj elindult!');
@@ -334,6 +362,11 @@ function DuelRoom({ onExit }: Props) {
     if (role !== 'host' || !snapshot || !snapshot.players.every((player) => snapshot.answers[player.id] !== null)) return;
     if (snapshot.roundIndex >= snapshot.rounds.length - 1) {
       updateSnapshot({ ...snapshot, finished: true }, true);
+      const liveSessionId = liveSessionIdRef.current;
+      liveSessionIdRef.current = null;
+      if (ownerUid && liveSessionId) {
+        void import('./firebase-store').then(({ clearLiveGame }) => clearLiveGame(ownerUid, liveSessionId)).catch(() => undefined);
+      }
       setStatus('A párbaj véget ért.');
       return;
     }
@@ -393,6 +426,15 @@ function DuelRoom({ onExit }: Props) {
       setImageUnavailable(false);
     }
   }, [stage, snapshot?.roundIndex]);
+
+  useEffect(() => {
+    if (role !== 'host' || stage !== 'playing' || !snapshot || snapshot.finished || !ownerUid || !liveSessionIdRef.current) return;
+    const heartbeat = window.setInterval(() => {
+      const current = snapshotRef.current;
+      if (current) publishLiveSnapshot(current);
+    }, 25_000);
+    return () => window.clearInterval(heartbeat);
+  }, [role, stage, snapshot?.roundIndex, snapshot?.finished, ownerUid, roomCode]);
 
   return (
     <section className="duel-page">

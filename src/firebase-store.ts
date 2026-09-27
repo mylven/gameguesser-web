@@ -79,3 +79,58 @@ export async function deletePlayerProfile(uid: string): Promise<void> {
   if (!auth || !firebaseConfigured) throw new Error('A Firebase nincs beállítva.');
   await deleteDoc(doc(getFirestore(auth.app), 'users', uid));
 }
+
+export type LiveGameInput = {
+  ownerUid: string;
+  playerName: string;
+  kind: 'solo' | 'multiplayer';
+  mode: string;
+  roundIndex: number;
+  totalRounds: number;
+  solution: string;
+  roomCode?: string;
+  roomType?: 'duel' | 'group';
+  players?: string[];
+  scores?: Record<string, number>;
+};
+
+export type LiveGame = LiveGameInput & { id: string; updatedAt: Date | null };
+
+export async function publishLiveGame(sessionId: string, game: LiveGameInput): Promise<void> {
+  if (!auth || !firebaseConfigured || auth.currentUser?.uid !== game.ownerUid) return;
+  await setDoc(doc(getFirestore(auth.app), 'liveGames', sessionId), {
+    ...game,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+export async function clearLiveGame(ownerUid: string, sessionId: string): Promise<void> {
+  if (!auth || !firebaseConfigured || auth.currentUser?.uid !== ownerUid) return;
+  await deleteDoc(doc(getFirestore(auth.app), 'liveGames', sessionId));
+}
+
+export async function listLiveGames(): Promise<LiveGame[]> {
+  if (!auth || !firebaseConfigured) throw new Error('A Firebase nincs beállítva.');
+  const snapshots = await getDocs(collection(getFirestore(auth.app), 'liveGames'));
+  return snapshots.docs.map((snapshot): LiveGame => {
+    const data = snapshot.data();
+    const timestamp = data.updatedAt;
+    const kind: LiveGameInput['kind'] = data.kind === 'multiplayer' ? 'multiplayer' : 'solo';
+    const roomType: LiveGameInput['roomType'] = data.roomType === 'group' || data.roomType === 'duel' ? data.roomType : undefined;
+    return {
+      id: snapshot.id,
+      ownerUid: String(data.ownerUid ?? ''),
+      playerName: String(data.playerName ?? 'Játékos'),
+      kind,
+      mode: String(data.mode ?? ''),
+      roundIndex: Number(data.roundIndex) || 0,
+      totalRounds: Number(data.totalRounds) || 0,
+      solution: String(data.solution ?? ''),
+      roomCode: typeof data.roomCode === 'string' ? data.roomCode : undefined,
+      roomType,
+      players: Array.isArray(data.players) ? data.players.map(String) : [],
+      scores: data.scores && typeof data.scores === 'object' ? data.scores as Record<string, number> : {},
+      updatedAt: timestamp && typeof timestamp.toDate === 'function' ? timestamp.toDate() as Date : null,
+    };
+  }).sort((left, right) => (right.updatedAt?.getTime() ?? 0) - (left.updatedAt?.getTime() ?? 0));
+}

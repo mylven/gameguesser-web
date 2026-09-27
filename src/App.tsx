@@ -115,6 +115,7 @@ function App() {
   const [profileOwner, setProfileOwner] = useState<string | null>(null);
   const [cloudStatus, setCloudStatus] = useState<'local' | 'loading' | 'saving' | 'saved' | 'offline'>('local');
   const [accountOpen, setAccountOpen] = useState(false);
+  const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!auth) return;
@@ -216,7 +217,34 @@ function App() {
   const currentRound = rounds[roundIndex];
   const activeMode = modes.find((item) => item.id === mode) ?? modes[0];
 
+  useEffect(() => {
+    if (!liveSessionId) return;
+    if (!user || !firebaseConfigured || screen !== 'playing' || !currentRound) {
+      if (user && firebaseConfigured) {
+        void import('./firebase-store').then(({ clearLiveGame }) => clearLiveGame(user.uid, liveSessionId)).catch(() => undefined);
+      }
+      setLiveSessionId(null);
+      return;
+    }
+
+    const publish = () => {
+      void import('./firebase-store').then(({ publishLiveGame }) => publishLiveGame(liveSessionId, {
+        ownerUid: user.uid,
+        playerName: user.displayName || user.email || 'Játékos',
+        kind: 'solo',
+        mode: activeMode.title,
+        roundIndex,
+        totalRounds: rounds.length,
+        solution: currentRound.game.title,
+      })).catch(() => undefined);
+    };
+    publish();
+    const heartbeat = window.setInterval(publish, 25_000);
+    return () => window.clearInterval(heartbeat);
+  }, [liveSessionId, user?.uid, user?.displayName, user?.email, firebaseConfigured, screen, currentRound?.game.title, activeMode.title, roundIndex, rounds.length, answer, wrongAnswers, revealedHints]);
+
   function startGame() {
+    setLiveSessionId(crypto.randomUUID());
     setRounds(createRounds(playableGames));
     setRoundIndex(0);
     setAnswer(null);
@@ -277,6 +305,7 @@ function App() {
 
   function resumeGame() {
     if (!progress || !isGameProgress(progress)) return;
+    setLiveSessionId(crypto.randomUUID());
     setMode(progress.mode);
     setCategory(progress.category);
     setRounds(progress.rounds);
@@ -365,7 +394,7 @@ function App() {
           </>
         )}
 
-        {screen === 'duel' && <DuelRoom onExit={() => setScreen('home')} />}
+        {screen === 'duel' && <DuelRoom ownerUid={user?.uid} ownerName={user?.displayName || user?.email || 'Játékos'} onExit={() => setScreen('home')} />}
         {screen === 'admin' && isAdmin && user && <Suspense fallback={<div className="admin-loading"><span className="account-spinner">◌</span> Admin felület betöltése…</div>}><AdminPanel currentUid={user.uid} onExit={() => setScreen('home')} /></Suspense>}
 
         {screen === 'playing' && currentRound && (

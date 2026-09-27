@@ -21,5 +21,14 @@ service cloud.firestore {
     match /users/{userId} {
       allow read, create, update, delete: if signedIn() && (request.auth.uid == userId || isAdmin());
     }
+
+    match /liveGames/{sessionId} {
+      allow read: if isAdmin();
+      allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if signedIn()
+        && resource.data.ownerUid == request.auth.uid
+        && request.resource.data.ownerUid == request.auth.uid;
+      allow delete: if isAdmin() || (signedIn() && resource.data.ownerUid == request.auth.uid);
+    }
   }
 }

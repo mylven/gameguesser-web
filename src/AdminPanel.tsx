@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Check, Cloud, Crown, LoaderCircle, RefreshCw, Search, Shield, ShieldOff, Trash2, UsersRound, X } from 'lucide-react';
-import { deletePlayerProfile, listAdminProfiles, setAdminAccess, type AdminProfile } from './firebase-store';
+import { ArrowLeft, Check, Clock3, Cloud, Crown, Eye, Gamepad2, LoaderCircle, RefreshCw, Search, Shield, ShieldOff, Swords, Trash2, UsersRound, X } from 'lucide-react';
+import { deletePlayerProfile, listAdminProfiles, listLiveGames, setAdminAccess, type AdminProfile, type LiveGame } from './firebase-store';
 
 type Props = { currentUid: string; onExit: () => void };
 
@@ -12,6 +12,9 @@ function AdminPanel({ currentUid, onExit }: Props) {
   const [busyUid, setBusyUid] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [liveGames, setLiveGames] = useState<LiveGame[]>([]);
+  const [liveLoading, setLiveLoading] = useState(true);
+  const [liveError, setLiveError] = useState('');
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -27,7 +30,24 @@ function AdminPanel({ currentUid, onExit }: Props) {
     }
   }, []);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  const refreshLiveGames = useCallback(async (showLoading = true) => {
+    if (showLoading) setLiveLoading(true);
+    setLiveError('');
+    try {
+      setLiveGames(await listLiveGames());
+    } catch {
+      setLiveError('Nem sikerült lekérni az élő játékokat. Ellenőrizd a liveGames Firestore-szabályt.');
+    } finally {
+      if (showLoading) setLiveLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+    void refreshLiveGames();
+    const timer = window.setInterval(() => void refreshLiveGames(false), 5_000);
+    return () => window.clearInterval(timer);
+  }, [refresh, refreshLiveGames]);
 
   const filteredProfiles = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -41,6 +61,8 @@ function AdminPanel({ currentUid, onExit }: Props) {
     score: result.score + (Number(profile.stats?.totalScore) || 0),
     inProgress: result.inProgress + (profile.progress ? 1 : 0),
   }), { games: 0, correct: 0, score: 0, inProgress: 0 }), [profiles]);
+
+  const activeGames = useMemo(() => liveGames.filter((game) => game.updatedAt && Date.now() - game.updatedAt.getTime() < 90_000), [liveGames]);
 
   async function toggleAdmin(profile: AdminProfile) {
     if (profile.uid === currentUid) {
@@ -100,6 +122,22 @@ function AdminPanel({ currentUid, onExit }: Props) {
         <article><span><Check size={18} /></span><strong>{totals.games}</strong><small>Lejátszott kör</small></article>
         <article><span><Cloud size={18} /></span><strong>{totals.inProgress}</strong><small>Félbehagyott mentés</small></article>
       </div>
+      <section className="admin-live-card">
+        <div className="admin-users-head">
+          <div><span className="section-kicker">VALÓS IDEJŰ FIGYELŐ</span><h2><i className="admin-live-dot" /> Aktuális játékok <small>{activeGames.length}</small></h2><p>A megoldásokat csak az adminfelület mutatja. Az adatok legfeljebb 5 másodpercenként frissülnek.</p></div>
+          <button className="admin-refresh" onClick={() => void refreshLiveGames()} disabled={liveLoading}><RefreshCw size={15} className={liveLoading ? 'admin-spinning' : ''} /> Frissítés</button>
+        </div>
+        {liveError && <div className="admin-feedback admin-error" role="alert"><X size={15} />{liveError}</div>}
+        {liveLoading ? <div className="admin-loading"><LoaderCircle size={20} /> Élő játékok betöltése…</div> : activeGames.length === 0 ? <div className="admin-empty">Jelenleg nem látszik aktív, bejelentkezett játékos által indított meccs.</div> : <div className="admin-live-grid">
+          {activeGames.map((game) => <article className="admin-live-game" key={game.id}>
+            <div className="admin-live-game-head"><span className={`admin-live-kind ${game.kind}`}><i />{game.kind === 'multiplayer' ? <><Swords size={13} /> {game.roomType === 'group' ? 'Csoportszoba' : 'Párbaj'}</> : <><Gamepad2 size={13} /> Egyéni játék</>}</span><span className="admin-live-time"><Clock3 size={12} /> {game.updatedAt?.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span></div>
+            <div className="admin-live-main"><div><small>JÁTÉKOS / HÁZIGAZDA</small><strong>{game.playerName}</strong></div><div><small>JÁTÉKMÓD · KÖR</small><strong>{game.mode} · {game.roundIndex + 1}/{game.totalRounds}</strong></div></div>
+            <div className="admin-live-solution"><span><Eye size={14} /> AKTUÁLIS MEGOLDÁS</span><strong>{game.solution || '—'}</strong></div>
+            {game.kind === 'multiplayer' && <div className="admin-live-details"><span>{game.roomCode ? `Szobakód: ${game.roomCode}` : 'Szoba'}</span><span>{game.players?.join(' · ') || 'Játékosok betöltése…'}</span>{game.scores && Object.keys(game.scores).length > 0 && <span className="admin-live-scores">{Object.entries(game.scores).map(([name, score]) => `${name}: ${score} pont`).join(' · ')}</span>}</div>}
+          </article>)}
+        </div>}
+        <div className="admin-live-note">A megfigyelés jelenleg a bejelentkezett játékosok egyéni kvízeit és a bejelentkezett házigazda által indított szobajátékokat követi.</div>
+      </section>
       <section className="admin-users-card">
         <div className="admin-users-head">
           <div><span className="section-kicker">FELHASZNÁLÓK</span><h2>Játékosprofilok</h2><p>Az Auth-fiókokat nem törli innen a rendszer; csak a profil és a mentett játékadat kezelhető.</p></div>
