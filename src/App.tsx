@@ -13,17 +13,19 @@ const AdminPanel = lazy(() => import('./AdminPanel'));
 const LeaderboardPanel = lazy(() => import('./Leaderboard'));
 const PremiumPanel = lazy(() => import('./PremiumPanel'));
 
-type ModeId = 'emoji' | 'clues' | 'features' | 'image';
+type ModeId = 'emoji' | 'clues' | 'features' | 'image' | 'marathon' | 'survival';
 type Screen = 'home' | 'playing' | 'complete' | 'duel' | 'admin' | 'leaderboard' | 'premium';
 type Stats = { gamesPlayed: number; questionsPlayed: number; correct: number; bestStreak: number; bestScore: number; totalScore: number };
 type Round = { game: Game; choices: Game[] };
 type GameProgress = { mode: ModeId; category: 'Mind' | GameCategory; rounds: Round[]; roundIndex: number; answer: string | null; wrongAnswers: string[]; revealedHints: number; score: number; streak: number; roundCorrect: number };
 
-const modes: Array<{ id: ModeId; icon: string; title: string; detail: string; label: string }> = [
+const modes: Array<{ id: ModeId; icon: string; title: string; detail: string; label: string; premium?: boolean }> = [
   { id: 'emoji', icon: '🎭', title: 'Emoji-kvíz', detail: 'Ismerd fel a játékot néhány beszédes emojiból.', label: 'Gyors és vicces' },
   { id: 'clues', icon: '🕵️', title: 'Nyomozó mód', detail: 'Fejtsd meg a játékot a fokozatosan felfedett nyomokból.', label: 'Gondolkodós' },
   { id: 'features', icon: '🧩', title: 'Jellemzők', detail: 'Műfaj és játékmenet alapján találd meg a helyes választ.', label: 'Igazi rajongóknak' },
   { id: 'image', icon: '🖼️', title: 'Képfelismerő', detail: 'Találd ki a játékot az elhomályosított képből.', label: 'Lásd meg a részleteket' },
+  { id: 'marathon', icon: '🏁', title: 'Maraton Mix', detail: '20 kérdés, három játékmód váltakozva.', label: 'Premium · változatos', premium: true },
+  { id: 'survival', icon: '❤️', title: 'Túlélő mód', detail: 'Válaszolj helyesen 20 kérdésre — egy hiba, és vége.', label: 'Premium · egy életed van', premium: true },
 ];
 
 const defaultStats: Stats = { gamesPlayed: 0, questionsPlayed: 0, correct: 0, bestStreak: 0, bestScore: 0, totalScore: 0 };
@@ -31,7 +33,7 @@ const defaultStats: Stats = { gamesPlayed: 0, questionsPlayed: 0, correct: 0, be
 function isGameProgress(value: unknown): value is GameProgress {
   if (!value || typeof value !== 'object') return false;
   const progress = value as Partial<GameProgress>;
-  const supportedModes: ModeId[] = ['emoji', 'clues', 'features', 'image'];
+  const supportedModes: ModeId[] = ['emoji', 'clues', 'features', 'image', 'marathon', 'survival'];
   return supportedModes.includes(progress.mode as ModeId)
     && ['Mind', ...categories.slice(1)].includes(progress.category as 'Mind' | GameCategory)
     && Array.isArray(progress.rounds)
@@ -273,11 +275,19 @@ function App() {
   const storedRound = rounds[roundIndex];
   const currentRound = storedRound ? { ...storedRound, game: localizeGame(storedRound.game, language) } : undefined;
   const activeMode = modes.find((item) => item.id === mode) ?? modes[0];
+  const questionMode: ModeId = mode === 'marathon'
+    ? (['emoji', 'clues', 'features'][roundIndex % 3] as ModeId)
+    : mode === 'survival' ? 'emoji' : mode;
+  const questionModeInfo = modes.find((item) => item.id === questionMode) ?? modes[0];
 
   useEffect(() => {
     const roundLimit = isPremium ? selectedRoundLimit : 10;
     if (roundLimit !== selectedRoundLimit) setSelectedRoundLimit(roundLimit);
   }, [isPremium, selectedRoundLimit]);
+
+  useEffect(() => {
+    if (!isPremium && (mode === 'marathon' || mode === 'survival')) setMode('emoji');
+  }, [isPremium, mode]);
 
   useEffect(() => {
     if (!liveSessionId) return;
@@ -307,7 +317,7 @@ function App() {
 
   function startGame() {
     setLiveSessionId(crypto.randomUUID());
-    setRounds(createRounds(playableGames, isPremium ? selectedRoundLimit : 10));
+    setRounds(createRounds(playableGames, mode === 'marathon' || mode === 'survival' ? 20 : isPremium ? selectedRoundLimit : 10));
     setRoundIndex(0);
     setAnswer(null);
     setWrongAnswers([]);
@@ -321,7 +331,7 @@ function App() {
 
   function chooseAnswer(title: string) {
     if (!currentRound || answer !== null || wrongAnswers.includes(title)) return;
-    if (mode === 'image' && title !== currentRound.game.title) {
+    if (questionMode === 'image' && title !== currentRound.game.title) {
       setWrongAnswers((current) => [...current, title]);
       setRevealedHints((current) => Math.min(current + 1, 3));
       setStreak(0);
@@ -344,11 +354,12 @@ function App() {
   }
 
   function continueGame() {
-    if (roundIndex >= rounds.length - 1) {
+    const failedSurvivalRun = mode === 'survival' && answer !== currentRound?.game.title;
+    if (roundIndex >= rounds.length - 1 || failedSurvivalRun) {
       setStats((saved) => ({
         ...saved,
         gamesPlayed: saved.gamesPlayed + 1,
-        questionsPlayed: saved.questionsPlayed + roundCount,
+        questionsPlayed: saved.questionsPlayed + (failedSurvivalRun ? roundIndex + 1 : roundCount),
         bestScore: Math.max(saved.bestScore, score),
       }));
       setScreen('complete');
@@ -367,6 +378,10 @@ function App() {
 
   function resumeGame() {
     if (!progress || !isGameProgress(progress)) return;
+    if (!isPremium && (progress.mode === 'marathon' || progress.mode === 'survival')) {
+      setProgress(null);
+      return;
+    }
     setLiveSessionId(crypto.randomUUID());
     setMode(progress.mode);
     setCategory(progress.category);
@@ -445,7 +460,7 @@ function App() {
                 <div className="eyebrow"><Sparkles size={14} /> A TE JÁTÉKISMERETED, A TE KIHÍVÁSOD</div>
                 <h1>{language === 'en' ? <>How well do you know<br />your <span>games?</span></> : <>Mennyire ismered<br />a <span>játékokat?</span></>}</h1>
                 <p>Emojik, nyomok és fejtörők. Kapcsold be a gamer agyad, és találd ki, melyik játékra gondoltunk!</p>
-                <div className="hero-tags"><span>🎮 {games.length}+ {language === 'en' ? 'games' : 'játék'}</span><span>⚡ {language === 'en' ? '4 game modes' : '4 játékmód'}</span><span>🏆 {language === 'en' ? 'Personal records' : 'Saját rekordok'}</span>{isPremium && <span className="premium-hero-tag"><Crown size={12} /> PREMIUM</span>}</div>
+                <div className="hero-tags"><span>🎮 {games.length}+ {language === 'en' ? 'games' : 'játék'}</span><span>⚡ {language === 'en' ? `${isPremium ? 6 : 4} game modes` : `${isPremium ? 6 : 4} játékmód`}</span><span>🏆 {language === 'en' ? 'Personal records' : 'Saját rekordok'}</span>{isPremium && <span className="premium-hero-tag"><Crown size={12} /> PREMIUM</span>}</div>
               </div>
               <div className="hero-art" aria-hidden="true">
                 <div className="orbit orbit-a" /><div className="orbit orbit-b" />
@@ -455,7 +470,7 @@ function App() {
               </div>
             </section>
 
-            {progress && <section className="resume-card">
+            {progress && (isPremium || (progress.mode !== 'marathon' && progress.mode !== 'survival')) && <section className="resume-card">
               <span className="resume-icon"><RotateCcw size={18} /></span>
               <span className="resume-copy"><strong>{language === 'en' ? 'You left a quiz unfinished' : 'Félbehagytál egy kvízt'}</strong><small>{modes.find((item) => item.id === progress.mode)?.title ?? (language === 'en' ? 'Quiz' : 'Kvíz')} · {language === 'en' ? `Question ${progress.roundIndex + 1} / ${progress.rounds.length}` : `${progress.roundIndex + 1}. kérdés / ${progress.rounds.length}`}</small></span>
               <button className="resume-button" onClick={resumeGame}>Folytatás <ArrowRight size={15} /></button>
@@ -471,9 +486,9 @@ function App() {
             {isPremium && <section className="premium-stats-card"><div className="premium-stats-heading"><span><Crown size={15} /> PREMIUM STATISZTIKÁK</span><strong>Részletes teljesítmény</strong></div><div className="premium-stats-grid"><div><strong>{stats.totalScore.toLocaleString(language === 'en' ? 'en-US' : 'hu-HU')}</strong><small>Összes szerzett pont</small></div><div><strong>{stats.questionsPlayed}</strong><small>Megválaszolt kérdés</small></div><div><strong>{accuracy}%</strong><small>Pontosság</small></div><div><strong>{stats.correct}</strong><small>Helyes válasz</small></div></div></section>}
 
             <section className="mode-section">
-              <div className="section-heading"><div><span className="section-kicker">VÁLASSZ KIHÍVÁST</span><h2>Hogyan játszunk?</h2></div><span className="round-note"><span className="live-dot" /> Egy kör · {Math.min(isPremium ? selectedRoundLimit : 10, playableGames.length)} kérdés</span></div>
+              <div className="section-heading"><div><span className="section-kicker">VÁLASSZ KIHÍVÁST</span><h2>Hogyan játszunk?</h2></div><span className="round-note"><span className="live-dot" /> Egy kör · {mode === 'marathon' || mode === 'survival' ? Math.min(20, playableGames.length) : Math.min(isPremium ? selectedRoundLimit : 10, playableGames.length)} kérdés</span></div>
               <div className="mode-grid">
-                {modes.map((item, index) => (
+                {modes.filter((item) => isPremium || !item.premium).map((item, index) => (
                   <button key={item.id} className={`mode-card ${mode === item.id ? 'selected' : ''} mode-${index}`} onClick={() => setMode(item.id)} aria-pressed={mode === item.id}>
                     <span className="mode-card-top"><span className="mode-icon">{item.icon}</span><span className="mode-check"><Check size={14} /></span></span>
                     <span className="mode-label">{item.label}</span><strong>{item.title}</strong><span className="mode-detail">{item.detail}</span>
@@ -482,7 +497,7 @@ function App() {
               </div>
               <div className="play-row">
                 <label className="category-select"><span>{language === 'en' ? 'Category' : 'Kategória'}</span><select value={category} onChange={(event) => setCategory(event.target.value as 'Mind' | GameCategory)}>{categories.map((item) => <option key={item} value={item}>{language === 'en' ? ({ Mind: 'All games', Akció: 'Action', Kaland: 'Adventure', RPG: 'RPG', Indie: 'Indie', Stratégia: 'Strategy', Szimulátor: 'Simulation', Sport: 'Sports', Egyéb: 'Other' } as Record<string, string>)[item] : item === 'Mind' ? 'Minden játék' : item}</option>)}</select></label>
-                <div className="play-actions">{isPremium && <label className="premium-round-select"><span><Crown size={12} /> {language === 'en' ? 'Quiz length' : 'Kvíz hossza'}</span><select value={selectedRoundLimit} onChange={(event) => setSelectedRoundLimit(Number(event.target.value))}><option value={10}>{language === 'en' ? '10 questions' : '10 kérdés'}</option><option value={20}>{language === 'en' ? '20 questions · Marathon' : '20 kérdés · Maraton'}</option></select></label>}<span className="pool-count">{catalogReady ? (language === 'en' ? `${playableGames.length} games in the deck` : `${playableGames.length} játék a pakliban`) : (language === 'en' ? 'Loading game list…' : 'Játéklista betöltése…')}</span><button className="primary-button" onClick={startGame} disabled={!catalogReady || playableGames.length === 0}>{catalogReady ? (language === 'en' ? 'Start quiz' : 'Játék indítása') : (language === 'en' ? 'Loading…' : 'Betöltés…')} <ArrowRight size={18} /></button></div>
+                <div className="play-actions">{isPremium && mode !== 'marathon' && mode !== 'survival' && <label className="premium-round-select"><span><Crown size={12} /> {language === 'en' ? 'Quiz length' : 'Kvíz hossza'}</span><select value={selectedRoundLimit} onChange={(event) => setSelectedRoundLimit(Number(event.target.value))}><option value={10}>{language === 'en' ? '10 questions' : '10 kérdés'}</option><option value={20}>{language === 'en' ? '20 questions · Marathon' : '20 kérdés · Maraton'}</option></select></label>}<span className="pool-count">{catalogReady ? (language === 'en' ? `${playableGames.length} games in the deck` : `${playableGames.length} játék a pakliban`) : (language === 'en' ? 'Loading game list…' : 'Játéklista betöltése…')}</span><button className="primary-button" onClick={startGame} disabled={!catalogReady || playableGames.length === 0}>{catalogReady ? (language === 'en' ? 'Start quiz' : 'Játék indítása') : (language === 'en' ? 'Loading…' : 'Betöltés…')} <ArrowRight size={18} /></button></div>
               </div>
             </section>
             {isPremium && <button className="premium-theme-toggle" onClick={togglePremiumTheme}><Crown size={14} /> {premiumTheme ? 'Arany téma bekapcsolva · Váltás' : 'Premium arany téma bekapcsolása'}</button>}
@@ -502,17 +517,17 @@ function App() {
 
         {screen === 'playing' && currentRound && (
           <section className="game-screen">
-            <div className="game-topline"><button className="back-button" onClick={() => setScreen('home')}><ArrowLeft size={17} /> Kilépés</button><div className="game-mode-pill"><span>{activeMode.icon}</span>{activeMode.title}</div><span className="score-pill"><Trophy size={15} /> {score} pont</span></div>
+            <div className="game-topline"><button className="back-button" onClick={() => setScreen('home')}><ArrowLeft size={17} /> Kilépés</button><div className="game-mode-pill"><span>{mode === 'marathon' ? questionModeInfo.icon : activeMode.icon}</span>{mode === 'marathon' ? <>{activeMode.title}<small> · {questionModeInfo.title}</small></> : activeMode.title}</div><span className="score-pill"><Trophy size={15} /> {score} pont</span></div>
             <div className="quiz-panel">
               <div className="quiz-progress-row"><span>KÉRDÉS <b>{String(roundIndex + 1).padStart(2, '0')}</b> <i>/ {String(roundCount).padStart(2, '0')}</i></span><span className="streak-label"><Flame size={15} /> {streak} {language === 'en' ? 'streak' : 'sorozat'}</span></div>
               <div className="progress-track"><div className="progress-fill" style={{ width: `${((roundIndex + 1) / roundCount) * 100}%` }} /></div>
               <div className="question-area">
                 <span className="question-kicker">MELYIK JÁTÉKRA GONDOLTUNK?</span>
-                {mode === 'emoji' && <div className="emoji-clue" aria-label="Emoji nyomok">{currentRound.game.emojis}</div>}
-                {mode === 'clues' && <div className="clue-title"><span className="clue-badge">NYOMOK</span><h2>Rakd össze a történetet!</h2></div>}
-                {mode === 'features' && <div className="clue-title"><span className="clue-badge">JÁTÉKJELLEMZŐK</span><h2>Melyik játék illik rájuk?</h2></div>}
+                {questionMode === 'emoji' && <div className="emoji-clue" aria-label="Emoji nyomok">{currentRound.game.emojis}</div>}
+                {questionMode === 'clues' && <div className="clue-title"><span className="clue-badge">NYOMOK</span><h2>Rakd össze a történetet!</h2></div>}
+                {questionMode === 'features' && <div className="clue-title"><span className="clue-badge">JÁTÉKJELLEMZŐK</span><h2>Melyik játék illik rájuk?</h2></div>}
               </div>
-              {mode === 'image' && <div className="image-challenge">
+              {questionMode === 'image' && <div className="image-challenge">
                 <div className="image-frame" aria-label="Elhomályosított játékillusztráció">
                   {!imageUnavailable && <img src={`https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${steamAppIds[currentRound.game.title]}/header.jpg`} alt="Játékkép" style={{ filter: `blur(${answer === currentRound.game.title ? 0 : Math.max(0, 24 - wrongAnswers.length * 8)}px)` }} onError={() => setImageUnavailable(true)} />}
                   {imageUnavailable && <div className="image-fallback" style={{ filter: `blur(${answer === currentRound.game.title ? 0 : Math.max(0, 24 - wrongAnswers.length * 8)}px)` }} aria-hidden="true">{currentRound.game.emojis}</div>}
@@ -520,23 +535,23 @@ function App() {
                 </div>
                 <div className="image-hints" aria-live="polite"><span className="image-hints-label"><Lightbulb size={14} /> SEGÍTSÉG · {revealedHints}/3</span>{currentRound.game.clues.slice(0, revealedHints).map((clue, index) => <p key={clue}><b>{index + 1}.</b> {clue}</p>)}</div>
               </div>}
-              {mode === 'features' && <div className="feature-list">{currentRound.game.features.map((feature) => <span key={feature}><Check size={15} /> {feature}</span>)}</div>}
-              {mode !== 'image' && <div className="hint-list" aria-live="polite">
+              {questionMode === 'features' && <div className="feature-list">{currentRound.game.features.map((feature) => <span key={feature}><Check size={15} /> {feature}</span>)}</div>}
+              {questionMode !== 'image' && mode !== 'survival' && <div className="hint-list" aria-live="polite">
                 {currentRound.game.clues.slice(0, revealedHints).map((clue, index) => <div className="hint-line" key={clue}><span>{String(index + 1).padStart(2, '0')}</span>{clue}</div>)}
               </div>}
-              {mode !== 'image' && !answer && <button className="hint-button" onClick={revealHint} disabled={revealedHints >= 3}><Lightbulb size={16} /> {revealedHints >= 3 ? 'Minden nyom felfedve' : 'Mutass még egy nyomot'} <small>{revealedHints < 3 ? '−20 pont' : ''}</small></button>}
+              {questionMode !== 'image' && mode !== 'survival' && !answer && <button className="hint-button" onClick={revealHint} disabled={revealedHints >= 3}><Lightbulb size={16} /> {revealedHints >= 3 ? 'Minden nyom felfedve' : 'Mutass még egy nyomot'} <small>{revealedHints < 3 ? '−20 pont' : ''}</small></button>}
               <div className="answers-grid">
                 {currentRound.choices.map((choice, index) => {
                   const isCorrect = choice.title === currentRound.game.title;
                   const isSelected = answer === choice.title;
                   const wasWrong = wrongAnswers.includes(choice.title);
                   const resultClass = answer ? (isCorrect ? 'correct' : isSelected ? 'incorrect' : 'muted-answer') : wasWrong ? 'incorrect' : '';
-                  return <button key={choice.title} className={`answer-option ${resultClass}`} onClick={() => chooseAnswer(choice.title)} disabled={answer !== null || wasWrong}><span className="answer-letter">{String.fromCharCode(65 + index)}</span><span>{choice.title}</span>{answer && isCorrect && <Check size={18} className="answer-result-icon" />}{(answer && isSelected && !isCorrect || mode === 'image' && wasWrong) && <X size={18} className="answer-result-icon" />}</button>;
+                  return <button key={choice.title} className={`answer-option ${resultClass}`} onClick={() => chooseAnswer(choice.title)} disabled={answer !== null || wasWrong}><span className="answer-letter">{String.fromCharCode(65 + index)}</span><span>{choice.title}</span>{answer && isCorrect && <Check size={18} className="answer-result-icon" />}{(answer && isSelected && !isCorrect || questionMode === 'image' && wasWrong) && <X size={18} className="answer-result-icon" />}</button>;
                 })}
               </div>
-              {mode === 'image' && wrongAnswers.length > 0 && !answer && <div className="feedback-bar feedback-wrong image-feedback"><div><span className="feedback-icon">🔍</span><span><strong>Ez most nem talált!</strong><small>Élesebb lett a kép, és új segítséget kaptál. Próbáld újra!</small></span></div><span className="tries-left">{4 - wrongAnswers.length} tipp maradt</span></div>}
-              {answer && <div className={`feedback-bar ${answer === currentRound.game.title ? 'feedback-correct' : 'feedback-wrong'}`}><div><span className="feedback-icon">{answer === currentRound.game.title ? '🎉' : '💡'}</span><span><strong>{answer === currentRound.game.title ? 'Ez az, eltaláltad!' : 'Majdnem!'}</strong><small>{answer === currentRound.game.title ? `+${Math.max(40, 100 - (revealedHints - 1) * 20)} pont — jöhet a következő?` : `A helyes válasz: ${currentRound.game.title}`}</small></span></div><button onClick={continueGame}>{roundIndex === roundCount - 1 ? 'Eredmény' : 'Következő'} <ArrowRight size={16} /></button></div>}
-              <div className="quiz-foot"><span><Lightbulb size={14} /> {mode === 'image' ? 'Minden hibás tipp élesíti a képet' : 'Kevesebb nyomért több pont jár'}</span><span>{mode === 'image' ? `${wrongAnswers.length} hibás tipp` : `${roundCorrect} / ${roundIndex + (answer ? 1 : 0)} helyes`}</span></div>
+              {questionMode === 'image' && wrongAnswers.length > 0 && !answer && <div className="feedback-bar feedback-wrong image-feedback"><div><span className="feedback-icon">🔍</span><span><strong>Ez most nem talált!</strong><small>Élesebb lett a kép, és új segítséget kaptál. Próbáld újra!</small></span></div><span className="tries-left">{4 - wrongAnswers.length} tipp maradt</span></div>}
+              {answer && <div className={`feedback-bar ${answer === currentRound.game.title ? 'feedback-correct' : 'feedback-wrong'}`}><div><span className="feedback-icon">{answer === currentRound.game.title ? '🎉' : '💡'}</span><span><strong>{answer === currentRound.game.title ? 'Ez az, eltaláltad!' : 'Majdnem!'}</strong><small>{answer === currentRound.game.title ? `+${Math.max(40, 100 - (revealedHints - 1) * 20)} pont — jöhet a következő?` : `A helyes válasz: ${currentRound.game.title}`}</small></span></div><button onClick={continueGame}>{mode === 'survival' && answer !== currentRound.game.title ? 'Menet vége' : roundIndex === roundCount - 1 ? 'Eredmény' : 'Következő'} <ArrowRight size={16} /></button></div>}
+              <div className="quiz-foot"><span><Lightbulb size={14} /> {mode === 'survival' ? 'Egy rossz válasz véget vet a menetnek' : questionMode === 'image' ? 'Minden hibás tipp élesíti a képet' : 'Kevesebb nyomért több pont jár'}</span><span>{questionMode === 'image' ? `${wrongAnswers.length} hibás tipp` : `${roundCorrect} / ${roundIndex + (answer ? 1 : 0)} helyes`}</span></div>
             </div>
           </section>
         )}
@@ -544,7 +559,7 @@ function App() {
         {screen === 'complete' && (
           <section className="complete-screen">
             <button className="back-button complete-back" onClick={() => setScreen('home')}><ArrowLeft size={17} /> Főoldal</button>
-            <div className="complete-card"><div className="complete-confetti">🏆</div><span className="section-kicker">KÖR TELJESÍTVE</span><h1>Szép játék!</h1><p>{roundCorrect >= 8 ? 'Te aztán ismered a játékokat!' : 'Még egy kör, és meglesz az új rekord!'}</p><div className="result-score"><strong>{score}</strong><span>pont</span></div><div className="result-stats"><div><strong>{roundCorrect}/{roundCount}</strong><span>Helyes válasz</span></div><div><strong>{stats.bestStreak}</strong><span>Legjobb sorozat</span></div><div><strong>{stats.bestScore}</strong><span>Rekordpontszám</span></div></div><div className="complete-actions"><button className="primary-button" onClick={startGame}><RotateCcw size={17} /> Újra játszás</button><button className="secondary-button" onClick={() => setScreen('home')}>Másik mód <ArrowRight size={17} /></button></div></div>
+            <div className="complete-card"><div className="complete-confetti">🏆</div><span className="section-kicker">{mode === 'survival' ? 'TÚLÉLÉS VÉGE' : 'KÖR TELJESÍTVE'}</span><h1>{mode === 'survival' ? roundCorrect === roundCount ? 'Sikeres túlélés!' : 'Vége a menetnek' : 'Szép játék!'}</h1><p>{mode === 'survival' ? roundCorrect === roundCount ? (language === 'en' ? 'You completed all 20 questions without a mistake!' : 'Mind a 20 kérdést hiba nélkül teljesítetted!') : (language === 'en' ? `You answered ${roundCorrect} questions correctly before losing your life.` : `Helyesen válaszoltál ${roundCorrect} kérdésre, mielőtt elfogyott az életed.`) : roundCorrect >= 8 ? 'Te aztán ismered a játékokat!' : 'Még egy kör, és meglesz az új rekord!'}</p><div className="result-score"><strong>{score}</strong><span>pont</span></div><div className="result-stats"><div><strong>{roundCorrect}/{mode === 'survival' ? roundIndex + 1 : roundCount}</strong><span>Helyes válasz</span></div><div><strong>{stats.bestStreak}</strong><span>Legjobb sorozat</span></div><div><strong>{stats.bestScore}</strong><span>Rekordpontszám</span></div></div><div className="complete-actions"><button className="primary-button" onClick={startGame}><RotateCcw size={17} /> Újra játszás</button><button className="secondary-button" onClick={() => setScreen('home')}>Másik mód <ArrowRight size={17} /></button></div></div>
           </section>
         )}
       </main>

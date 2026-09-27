@@ -16,7 +16,8 @@ const buyMeACoffeeMembershipUrl = 'https://buymeacoffee.com/mylven/membership';
 const perks = [
   'Haladó statisztikák és összesített teljesítmény',
   'Egyedi, Premium színű játéktéma',
-  '20 kérdéses Maraton játékmód',
+  '20 kérdéses, váltakozó feladványokat tartalmazó Maraton Mix',
+  'Túlélő mód: 20 kérdés, egyetlen élettel',
   '20 kérdéses párbaj- és csoportszobák',
 ];
 
