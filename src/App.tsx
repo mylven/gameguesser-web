@@ -491,7 +491,7 @@ function App() {
               <div className="duel-promo-copy"><span>JÁTSSZATOK EGYÜTT</span><strong>Hívd ki a barátod vagy játsszatok együtt!</strong><small>Kétfős párbaj vagy korlátlan létszámú csoportszoba · Premium házigazdának 20 kérdés</small></div>
               <button className="duel-promo-button" onClick={() => setScreen('duel')} disabled={!catalogReady}>Játékszoba <ArrowRight size={17} /></button>
             </section>
-            <footer className="home-footer"><span>🎯 {accuracy}% {language === 'en' ? 'accuracy so far' : 'pontosság eddig'}</span><span>{language === 'en' ? 'Play, learn, and beat your record.' : 'Játssz, tanulj, és döntsd meg a rekordod.'}</span></footer>
+            <footer className="home-footer"><span>{language === 'en' ? 'Play, learn, and beat your record.' : 'Játssz, tanulj, és döntsd meg a rekordod.'}</span></footer>
           </>
         )}
 
