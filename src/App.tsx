@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { ArrowLeft, ArrowRight, Check, Flame, Gamepad2, Lightbulb, RotateCcw, Sparkles, Swords, Trophy, X } from 'lucide-react';
 import { categories, games, steamAppIds, type Game, type GameCategory } from './games';
 import DuelRoom from './DuelRoom';
 import AccountModal from './AccountModal';
-import { auth, firebaseConfigured, loadCloudProfile, saveCloudProfile, type CloudProfile, type SavedProgress } from './firebase';
+import { auth, firebaseConfigured, hasAdminAccess, loadCloudProfile, saveCloudProfile, type CloudProfile, type SavedProgress } from './firebase';
+
+const AdminPanel = lazy(() => import('./AdminPanel'));
 
 type ModeId = 'emoji' | 'clues' | 'features' | 'image';
-type Screen = 'home' | 'playing' | 'complete' | 'duel';
+type Screen = 'home' | 'playing' | 'complete' | 'duel' | 'admin';
 type Stats = { gamesPlayed: number; questionsPlayed: number; correct: number; bestStreak: number; bestScore: number; totalScore: number };
 type Round = { game: Game; choices: Game[] };
 type GameProgress = { mode: ModeId; category: 'Mind' | GameCategory; rounds: Round[]; roundIndex: number; answer: string | null; wrongAnswers: string[]; revealedHints: number; score: number; streak: number; roundCorrect: number };
@@ -107,6 +109,7 @@ function App() {
     return isGameProgress(saved) ? saved : null;
   });
   const [user, setUser] = useState<User | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [authReady, setAuthReady] = useState(!auth);
   const [profileReady, setProfileReady] = useState(false);
   const [profileOwner, setProfileOwner] = useState<string | null>(null);
@@ -120,6 +123,16 @@ function App() {
       setAuthReady(true);
     });
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    setIsAdmin(false);
+    if (!user || !firebaseConfigured) return () => { active = false; };
+    void hasAdminAccess(user)
+      .then((allowed) => { if (active) setIsAdmin(allowed); })
+      .catch(() => { if (active) setIsAdmin(false); });
+    return () => { active = false; };
+  }, [user?.uid]);
 
   useEffect(() => {
     if (!authReady) return;
@@ -353,6 +366,7 @@ function App() {
         )}
 
         {screen === 'duel' && <DuelRoom onExit={() => setScreen('home')} />}
+        {screen === 'admin' && isAdmin && user && <Suspense fallback={<div className="admin-loading"><span className="account-spinner">◌</span> Admin felület betöltése…</div>}><AdminPanel currentUid={user.uid} onExit={() => setScreen('home')} /></Suspense>}
 
         {screen === 'playing' && currentRound && (
           <section className="game-screen">
@@ -404,7 +418,7 @@ function App() {
       </main>
       <div className="site-bottom"><span>GAMEGUESSER <b>GG</b></span><span>Találd ki. Játssz még. 🕹️</span></div>
       {user && cloudStatus !== 'local' && <span className="account-cloud-indicator"><span className={`cloud-indicator-dot ${cloudStatus}`} />{accountLabel}</span>}
-      <AccountModal user={user} open={accountOpen} onClose={() => setAccountOpen(false)} cloudStatus={cloudStatus} />
+      <AccountModal user={user} isAdmin={isAdmin} open={accountOpen} onClose={() => setAccountOpen(false)} onOpenAdmin={() => { setAccountOpen(false); setScreen('admin'); }} cloudStatus={cloudStatus} />
     </div>
   );
 }

@@ -61,3 +61,8 @@ export async function saveCloudProfile(user: User, profile: CloudProfile): Promi
   const store = await import('./firebase-store');
   await store.saveCloudProfile(user, profile);
 }
+
+export async function hasAdminAccess(user: User): Promise<boolean> {
+  const store = await import('./firebase-store');
+  return store.hasAdminAccess(user);
+}

@@ -1,10 +1,10 @@
 import { useState, type FormEvent } from 'react';
 import { createUserWithEmailAndPassword, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updateProfile } from 'firebase/auth';
-import { ArrowRight, Cloud, KeyRound, LoaderCircle, Mail, UserPlus, X } from 'lucide-react';
+import { ArrowRight, Cloud, KeyRound, LoaderCircle, Mail, Shield, UserPlus, X } from 'lucide-react';
 import { auth, firebaseConfigured, prepareAuth } from './firebase';
 import type { User } from 'firebase/auth';
 
-type Props = { user: User | null; open: boolean; onClose: () => void; cloudStatus: 'local' | 'loading' | 'saving' | 'saved' | 'offline' };
+type Props = { user: User | null; isAdmin: boolean; open: boolean; onClose: () => void; onOpenAdmin: () => void; cloudStatus: 'local' | 'loading' | 'saving' | 'saved' | 'offline' };
 type AuthMode = 'login' | 'register';
 
 function messageForError(code: string): string {
@@ -18,7 +18,7 @@ function messageForError(code: string): string {
   return 'Nem sikerült a művelet. Ellenőrizd a Firebase-beállításokat, és próbáld újra.';
 }
 
-function AccountModal({ user, open, onClose, cloudStatus }: Props) {
+function AccountModal({ user, isAdmin, open, onClose, onOpenAdmin, cloudStatus }: Props) {
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -109,6 +109,7 @@ function AccountModal({ user, open, onClose, cloudStatus }: Props) {
           <div className="account-current-user"><span className="account-avatar">{(user.displayName || user.email || 'G').slice(0, 1).toUpperCase()}</span><span><strong>{user.displayName || 'GameGuesser-játékos'}</strong><small>{user.email}</small></span><i className={`cloud-indicator-dot ${cloudStatus}`} /><small className="account-save-state">{cloudStatus === 'saved' ? 'Mentve' : cloudStatus === 'saving' || cloudStatus === 'loading' ? 'Mentés…' : 'Helyi mentés'}</small></div>
           {info && <p className="account-message success-message">{info}</p>}
           {error && <p className="account-message error-message" role="alert">{error}</p>}
+          {isAdmin && <button className="account-admin-link" onClick={onOpenAdmin}><Shield size={16} /> Admin kezelőfelület <ArrowRight size={16} /></button>}
           <button className="account-submit" onClick={logout} disabled={busy}>{busy ? <LoaderCircle className="account-spinner" size={17} /> : null} Kijelentkezés</button>
         </> : <>
           <span className="section-kicker">MENTSD EL A JÁTÉKOD</span>

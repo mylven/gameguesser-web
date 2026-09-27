@@ -8,6 +8,7 @@ import './duel-timer.css';
 import './group-room.css';
 import './account.css';
 import './account-status.css';
+import './admin.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

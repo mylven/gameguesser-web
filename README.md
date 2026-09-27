@@ -18,6 +18,32 @@ A felhőmentés tartalmazza a személyes pontszámokat és az elkezdett egyját�
 
 A Firebase Web API-kulcs a böngészőben szükségszerűen látható; az adatok védelmét a fiókhoz kötött Firestore-szabályok adják. Ne lazítsd a szabályokat nyilvános olvasás/írás engedélyezésével.
 
+## Admin-fiók és játékoskezelés
+
+Az admin felületen áttekinthetők a regisztrált játékosprofilok, pontszámok és félbehagyott kvízek. Az admin más játékosnak adhat vagy vonhat vissza admin szerepkört, valamint törölheti a játékprofilját és mentett játékát. Ez utóbbi **nem** törli a Firebase Authentication-belépési fiókot.
+
+Az első adminisztrátort szándékosan nem lehet nyilvános regisztrációval megszerezni. Biztonságos kezdeti jóváhagyás:
+
+1. Regisztrálj a weboldalon a **Fiók létrehozása** gombbal, majd jelentkezz be.
+2. Firebase Console → **Authentication → Users** alatt keresd ki a saját fiókodat, és másold ki a **UID** értékét.
+3. Firestore → **Data** alatt hozz létre egy `admins` kollekciót, benne egy olyan dokumentummal, amelynek dokumentumazonosítója pontosan a saját Auth UID. Adj hozzá egy `active` mezőt **boolean** típussal, `true` értékkel.
+4. Frissítsd az oldalt. A fiókmenüben megjelenik az **Admin kezelőfelület**.
+
+A Firestore `admins/{uid}` jogosultságot és userenkénti hozzáférést ellenőrző szabályai a [firestore.rules](firestore.rules) fájlban vannak; a Firebase Console-ban már közzé lettek téve. Az admin szerepkör UID-alapú, nem e-mail alapján működik.
+
+## Admin-fiók és játékoskezelés
+
+Az admin felületen megtekinthetők a mentett játékosprofilok, pontszámok és félbehagyott kvízek; más játékosnak admin szerepkör adható vagy vonható vissza, és törölhető a játékprofilja. Ez **nem törli** a Firebase Authentication-belépési fiókot.
+
+Az első adminisztrátort a Firebase-projekt tulajdonosának kell egyszer, kézzel jóváhagynia; ezt szándékosan nem lehet nyilvános regisztrációval megszerezni:
+
+1. Regisztrálj a GameGuesser oldalon a **Fiók létrehozása** gombbal, majd jelentkezz be.
+2. A Firebase Console **Authentication → Users** oldalán keresd meg a fiók UID-ját.
+3. A Firestore **Data** nézetben hozz létre egy `admins` kollekciót. Dokumentumazonosítóként add meg pontosan a saját Auth UID-ját, majd hozz létre egy `active` nevű, boolean típusú, `true` értékű mezőt. Az `email` mező opcionális.
+4. Frissítsd az oldalt, jelentkezz ki-be, majd a profilmenüben megjelenik az **Admin kezelőfelület**.
+
+Az új adminok felvétele később már az admin dashboardról is kezelhető. Az első jogosultság seedeléséhez és az adatbázis-szabályok módosításához Firebase-projekttulajdonosi hozzáférés szükséges.
+
 A játék képei a Steam képkiszolgálójáról töltődnek be, ezért a képes módhoz is internetkapcsolat szükséges.
 
 ## Indítás helyben
