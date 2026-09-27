@@ -6,6 +6,10 @@ A kvíz a beépített, részletesen szerkesztett címek mellett akár 6000 Steam
 
 A **Ranglista** az első 100, bejelentkezett játékos összesített pontszáma alapján készül, és 30 másodpercenként frissül. A ranglista csak a megjelenített játékosnevet, az összpontszámot és a befejezett kvízek számát teszi nyilvánosan olvashatóvá; e-mail-címet nem. A vendégként, helyi böngészőben szerzett pontok nem kerülnek fel.
 
+## Premium-tagság
+
+A Premium oldal Buy Me a Coffee-tagságot kínál **1 500 Ft/hó** áron, részletesebb statisztikákkal, arany témával, 20 kérdéses Maraton móddal és hosszabb szobameccsekkel. A Buy Me a Coffee Tagságok felületén létre kell hozni a GameGuesser Premium tagsági szintet havi 1 500 Ft áron. A fizetés után a játékos az **Aktiválást kérek** gombbal küld jóváhagyási kérelmet; az admin a vásárlás ellenőrzése után az Admin felületen aktiválja, illetve szükség esetén visszavonja a jogosultságot. A Buy Me a Coffee biztonságos automatikus webhookos ellenőrzése külön szerveroldali végpontot és Firebase Blaze beállítást igényel, ezért ez jelenleg nincs bekapcsolva.
+
 A házigazda két szobatípus közül választhat: **Párbaj** (legfeljebb 2 játékos) vagy **Csoportszoba** (korlátlan számú csatlakozó). Mindkettőben az emoji-, nyom-, jellemző- és képfelismerő mód közül lehet választani, valamint kérdésenkénti 15, 30 vagy 45 másodperces időlimit állítható be. Időre játszva a gyorsabb helyes válasz több pontot ér; képfelismerő módban a kép a visszaszámlálás során kiélesedik. A szobakódot megosztva a játékosok csatlakoznak; a 10 kérdéses meccs válaszai és pontjai PeerJS/WebRTC kapcsolaton szinkronizálódnak, az eredmény a teljes társaság rangsorát mutatja. A játékhoz internetkapcsolat szükséges.
 
 ## Fiók és mentés más eszközre

@@ -46,5 +46,26 @@ service cloud.firestore {
         && request.resource.data.updatedAt is timestamp;
       allow delete: if isAdmin();
     }
+
+    match /premiumEntitlements/{playerUid} {
+      allow get: if signedIn() && (request.auth.uid == playerUid || isAdmin());
+      allow list: if isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /premiumRequests/{playerUid} {
+      allow get: if signedIn() && (request.auth.uid == playerUid || isAdmin());
+      allow list: if isAdmin();
+      allow create: if signedIn()
+        && request.auth.uid == playerUid
+        && request.resource.data.keys().hasOnly(['displayName', 'email', 'requestedAt'])
+        && request.resource.data.keys().hasAll(['displayName', 'email', 'requestedAt'])
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() <= 32
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.requestedAt is timestamp;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
   }
 }

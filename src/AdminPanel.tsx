@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, Check, Clock3, Cloud, Crown, Eye, Gamepad2, LoaderCircle, RefreshCw, Search, Shield, ShieldOff, Swords, Trash2, UsersRound, X } from 'lucide-react';
-import { deletePlayerProfile, listAdminProfiles, listLiveGames, setAdminAccess, type AdminProfile, type LiveGame } from './firebase-store';
+import { ArrowLeft, BadgeCheck, Check, Clock3, Cloud, Crown, Eye, Gamepad2, LoaderCircle, RefreshCw, Search, Shield, ShieldOff, Swords, Trash2, UsersRound, X } from 'lucide-react';
+import { deletePlayerProfile, grantPremiumAccess, listAdminProfiles, listLiveGames, listPremiumRequests, revokePremiumAccess, setAdminAccess, type AdminProfile, type LiveGame, type PremiumRequest } from './firebase-store';
 
 type Props = { currentUid: string; onExit: () => void };
 
@@ -15,14 +15,18 @@ function AdminPanel({ currentUid, onExit }: Props) {
   const [liveGames, setLiveGames] = useState<LiveGame[]>([]);
   const [liveLoading, setLiveLoading] = useState(true);
   const [liveError, setLiveError] = useState('');
+  const [premiumRequests, setPremiumRequests] = useState<PremiumRequest[]>([]);
+  const [premiumUids, setPremiumUids] = useState<string[]>([]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const result = await listAdminProfiles();
+      const [result, requests] = await Promise.all([listAdminProfiles(), listPremiumRequests()]);
       setProfiles(result);
       setAdminUids(result.filter((profile) => profile.isAdmin).map((profile) => profile.uid));
+      setPremiumRequests(requests);
+      setPremiumUids(result.filter((profile) => profile.isPremium).map((profile) => profile.uid));
     } catch {
       setError('Nem sikerült betölteni a felhasználókat. Ellenőrizd az admin Firestore-szabályokat.');
     } finally {
@@ -84,6 +88,38 @@ function AdminPanel({ currentUid, onExit }: Props) {
     }
   }
 
+  async function approvePremium(request: PremiumRequest) {
+    setBusyUid(request.uid);
+    setError('');
+    setNotice('');
+    try {
+      await grantPremiumAccess(request);
+      setPremiumRequests((current) => current.filter((item) => item.uid !== request.uid));
+      setPremiumUids((current) => current.includes(request.uid) ? current : [...current, request.uid]);
+      setNotice(`Premium hozzáférés aktiválva: ${request.email}`);
+    } catch {
+      setError('Nem sikerült jóváhagyni a Premium-igénylést. Ellenőrizd a Firestore-szabályokat.');
+    } finally {
+      setBusyUid('');
+    }
+  }
+
+  async function removePremium(uid: string, email: string | null) {
+    if (!window.confirm(`Visszavonod a Premium-hozzáférést ${email || uid} fiókjánál?`)) return;
+    setBusyUid(uid);
+    setError('');
+    setNotice('');
+    try {
+      await revokePremiumAccess(uid);
+      setPremiumUids((current) => current.filter((item) => item !== uid));
+      setNotice(`Premium hozzáférés visszavonva: ${email || uid}`);
+    } catch {
+      setError('Nem sikerült visszavonni a Premium-hozzáférést.');
+    } finally {
+      setBusyUid('');
+    }
+  }
+
   async function removeProfile(profile: AdminProfile) {
     if (profile.uid === currentUid) {
       setError('A saját profilodat innen nem törölheted.');
@@ -122,6 +158,10 @@ function AdminPanel({ currentUid, onExit }: Props) {
         <article><span><Check size={18} /></span><strong>{totals.games}</strong><small>Lejátszott kör</small></article>
         <article><span><Cloud size={18} /></span><strong>{totals.inProgress}</strong><small>Félbehagyott mentés</small></article>
       </div>
+      <section className="admin-premium-card">
+        <div className="admin-users-head"><div><span className="section-kicker">BUY ME A COFFEE · 1 500 FT / HÓ</span><h2><Crown size={19} /> Premium-igénylések <small>{premiumRequests.length}</small></h2><p>A vásárlás ellenőrzése és aktiválása jelenleg kézi. Csak az ellenőrzött tagságokat hagyd jóvá.</p></div><button className="admin-refresh" onClick={() => void refresh()} disabled={loading}><RefreshCw size={15} className={loading ? 'admin-spinning' : ''} /> Frissítés</button></div>
+        {premiumRequests.length === 0 ? <div className="admin-empty">Nincs függő Premium-igénylés.</div> : <div className="admin-premium-requests">{premiumRequests.map((request) => <article className="admin-premium-request" key={request.uid}><span className="admin-premium-avatar"><Crown size={17} /></span><span className="admin-premium-request-copy"><strong>{request.displayName}</strong><small>{request.email}</small><small>{request.requestedAt?.toLocaleString('hu-HU') ?? 'Most kérte'}</small></span><button className="admin-approve-premium" onClick={() => void approvePremium(request)} disabled={busyUid === request.uid}>{busyUid === request.uid ? <LoaderCircle size={15} className="admin-spinning" /> : <BadgeCheck size={15} />} Jóváhagyás</button></article>)}</div>}
+      </section>
       <section className="admin-live-card">
         <div className="admin-users-head">
           <div><span className="section-kicker">VALÓS IDEJŰ FIGYELŐ</span><h2><i className="admin-live-dot" /> Aktuális játékok <small>{activeGames.length}</small></h2><p>A megoldásokat csak az adminfelület mutatja. Az adatok legfeljebb 5 másodpercenként frissülnek.</p></div>
@@ -147,16 +187,18 @@ function AdminPanel({ currentUid, onExit }: Props) {
         {error && <div className="admin-feedback admin-error" role="alert"><X size={15} />{error}</div>}
         {notice && <div className="admin-feedback admin-success"><Check size={15} />{notice}</div>}
         {loading ? <div className="admin-loading"><LoaderCircle size={20} /> Profilok betöltése…</div> : filteredProfiles.length === 0 ? <div className="admin-empty">{profiles.length === 0 ? 'Még nincsenek játékosprofilok. Az első bejelentkezés és mentés után jelennek meg.' : 'Nincs a keresésnek megfelelő profil.'}</div> : <div className="admin-table-wrap"><table className="admin-table">
-          <thead><tr><th>Játékos</th><th>Statisztika</th><th>Félbehagyott kvíz</th><th>Jogosultság</th><th>Műveletek</th></tr></thead>
+          <thead><tr><th>Játékos</th><th>Statisztika</th><th>Félbehagyott kvíz</th><th>Jogosultság</th><th>Premium</th><th>Műveletek</th></tr></thead>
           <tbody>{filteredProfiles.map((profile) => {
             const isAdmin = adminUids.includes(profile.uid);
+            const isPremium = premiumUids.includes(profile.uid);
             const busy = busyUid === profile.uid;
             return <tr key={profile.uid}>
               <td><div className="admin-user-cell"><span className="admin-user-avatar">{(profile.displayName || profile.email || 'G').slice(0, 1).toUpperCase()}</span><span><strong>{profile.displayName || 'Játékos'}</strong><small>{profile.email || 'E-mail nincs a profilban'}</small><small className="admin-uid">UID: {profile.uid}</small></span></div></td>
               <td><strong>{profile.stats?.gamesPlayed ?? 0} kör</strong><small>{profile.stats?.correct ?? 0} helyes · {profile.stats?.bestScore ?? 0} rekordpont</small></td>
               <td>{profile.progress ? `${profile.progress.roundIndex + 1}. kérdés / ${profile.progress.rounds.length}` : 'Nincs'}</td>
               <td><span className={`admin-role ${isAdmin ? 'is-admin' : ''}`}>{isAdmin ? 'Admin' : 'Játékos'}</span></td>
-              <td><div className="admin-actions"><button onClick={() => void toggleAdmin(profile)} disabled={busy || profile.uid === currentUid} title={profile.uid === currentUid ? 'Saját szerepkör nem módosítható' : isAdmin ? 'Admin jog visszavonása' : 'Admin jog megadása'}>{busy ? <LoaderCircle size={15} className="admin-spinning" /> : isAdmin ? <ShieldOff size={15} /> : <Shield size={15} />}<span>{isAdmin ? 'Jog visszavonása' : 'Adminná tesz'}</span></button><button className="delete-profile-action" onClick={() => void removeProfile(profile)} disabled={busy || profile.uid === currentUid} title="Mentett játékprofil törlése"><Trash2 size={15} /><span>Profil törlése</span></button></div></td>
+              <td><span className={`admin-role ${isPremium ? 'is-premium' : ''}`}>{isPremium ? 'Premium' : 'Ingyenes'}</span></td>
+              <td><div className="admin-actions"><button onClick={() => void toggleAdmin(profile)} disabled={busy || profile.uid === currentUid} title={profile.uid === currentUid ? 'Saját szerepkör nem módosítható' : isAdmin ? 'Admin jog visszavonása' : 'Admin jog megadása'}>{busy ? <LoaderCircle size={15} className="admin-spinning" /> : isAdmin ? <ShieldOff size={15} /> : <Shield size={15} />}<span>{isAdmin ? 'Jog visszavonása' : 'Adminná tesz'}</span></button>{isPremium && <button className="premium-revoke-action" onClick={() => void removePremium(profile.uid, profile.email)} disabled={busy}><Crown size={15} /><span>Premium visszavonása</span></button>}<button className="delete-profile-action" onClick={() => void removeProfile(profile)} disabled={busy || profile.uid === currentUid} title="Mentett játékprofil törlése"><Trash2 size={15} /><span>Profil törlése</span></button></div></td>
             </tr>;
           })}</tbody>
         </table></div>}

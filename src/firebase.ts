@@ -66,3 +66,13 @@ export async function hasAdminAccess(user: User): Promise<boolean> {
   const store = await import('./firebase-store');
   return store.hasAdminAccess(user);
 }
+
+export async function hasPremiumAccess(user: User): Promise<boolean> {
+  const store = await import('./firebase-store');
+  return store.hasPremiumAccess(user);
+}
+
+export async function hasPendingPremiumRequest(user: User): Promise<boolean> {
+  const store = await import('./firebase-store');
+  return store.hasPendingPremiumRequest(user);
+}

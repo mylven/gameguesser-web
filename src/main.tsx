@@ -10,6 +10,7 @@ import './account.css';
 import './account-status.css';
 import './admin.css';
 import './leaderboard.css';
+import './premium.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

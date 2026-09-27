@@ -1,16 +1,17 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { ArrowLeft, ArrowRight, Check, Flame, Gamepad2, Lightbulb, RotateCcw, Sparkles, Swords, Trophy, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Crown, Flame, Gamepad2, Lightbulb, RotateCcw, Sparkles, Swords, Trophy, X } from 'lucide-react';
 import { categories, games, loadGameCatalog, refreshGameCatalog, steamAppIds, type Game, type GameCategory } from './games';
 import DuelRoom from './DuelRoom';
 import AccountModal from './AccountModal';
-import { auth, firebaseConfigured, hasAdminAccess, loadCloudProfile, saveCloudProfile, type CloudProfile, type SavedProgress } from './firebase';
+import { auth, firebaseConfigured, hasAdminAccess, hasPendingPremiumRequest, hasPremiumAccess, loadCloudProfile, saveCloudProfile, type CloudProfile, type SavedProgress } from './firebase';
 
 const AdminPanel = lazy(() => import('./AdminPanel'));
 const LeaderboardPanel = lazy(() => import('./Leaderboard'));
+const PremiumPanel = lazy(() => import('./PremiumPanel'));
 
 type ModeId = 'emoji' | 'clues' | 'features' | 'image';
-type Screen = 'home' | 'playing' | 'complete' | 'duel' | 'admin' | 'leaderboard';
+type Screen = 'home' | 'playing' | 'complete' | 'duel' | 'admin' | 'leaderboard' | 'premium';
 type Stats = { gamesPlayed: number; questionsPlayed: number; correct: number; bestStreak: number; bestScore: number; totalScore: number };
 type Round = { game: Game; choices: Game[] };
 type GameProgress = { mode: ModeId; category: 'Mind' | GameCategory; rounds: Round[]; roundIndex: number; answer: string | null; wrongAnswers: string[]; revealedHints: number; score: number; streak: number; roundCorrect: number };
@@ -32,7 +33,7 @@ function isGameProgress(value: unknown): value is GameProgress {
     && ['Mind', ...categories.slice(1)].includes(progress.category as 'Mind' | GameCategory)
     && Array.isArray(progress.rounds)
     && progress.rounds.length > 0
-    && progress.rounds.length <= 10
+    && progress.rounds.length <= 20
     && Number.isInteger(progress.roundIndex)
     && (progress.roundIndex ?? -1) >= 0
     && (progress.roundIndex ?? 11) < progress.rounds.length
@@ -83,8 +84,8 @@ function shuffle<T,>(items: T[]): T[] {
   return result;
 }
 
-function createRounds(pool: Game[]): Round[] {
-  const selected = shuffle(pool).slice(0, Math.min(10, pool.length));
+function createRounds(pool: Game[], count = 10): Round[] {
+  const selected = shuffle(pool).slice(0, Math.min(count, pool.length));
   return selected.map((game) => {
     const distractors = shuffle(games.filter((candidate) => candidate.title !== game.title)).slice(0, 3);
     return { game, choices: shuffle([game, ...distractors]) };
@@ -94,6 +95,7 @@ function createRounds(pool: Game[]): Round[] {
 function App() {
   const [screen, setScreen] = useState<Screen>('home');
   const [mode, setMode] = useState<ModeId>('emoji');
+  const [selectedRoundLimit, setSelectedRoundLimit] = useState(10);
   const [catalogSize, setCatalogSize] = useState(games.length);
   const [catalogReady, setCatalogReady] = useState(false);
   const [category, setCategory] = useState<'Mind' | GameCategory>('Mind');
@@ -113,12 +115,17 @@ function App() {
   });
   const [user, setUser] = useState<User | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isPremium, setIsPremium] = useState(false);
+  const [premiumRequestPending, setPremiumRequestPending] = useState(false);
+  const [premiumRequestBusy, setPremiumRequestBusy] = useState(false);
+  const [premiumRequestMessage, setPremiumRequestMessage] = useState('');
   const [authReady, setAuthReady] = useState(!auth);
   const [profileReady, setProfileReady] = useState(false);
   const [profileOwner, setProfileOwner] = useState<string | null>(null);
   const [cloudStatus, setCloudStatus] = useState<'local' | 'loading' | 'saving' | 'saved' | 'offline'>('local');
   const [accountOpen, setAccountOpen] = useState(false);
   const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
+  const [premiumTheme, setPremiumTheme] = useState(() => localStorage.getItem('gameguesser-premium-theme') === 'true');
 
   useEffect(() => {
     let active = true;
@@ -156,6 +163,22 @@ function App() {
     void hasAdminAccess(user)
       .then((allowed) => { if (active) setIsAdmin(allowed); })
       .catch(() => { if (active) setIsAdmin(false); });
+    return () => { active = false; };
+  }, [user?.uid]);
+
+  useEffect(() => {
+    let active = true;
+    setIsPremium(false);
+    setPremiumRequestPending(false);
+    setPremiumRequestMessage('');
+    if (!user || !firebaseConfigured) return () => { active = false; };
+    void Promise.all([hasPremiumAccess(user), hasPendingPremiumRequest(user)])
+      .then(([premium, pending]) => {
+        if (!active) return;
+        setIsPremium(premium);
+        setPremiumRequestPending(pending);
+      })
+      .catch(() => { if (active) setIsPremium(false); });
     return () => { active = false; };
   }, [user?.uid]);
 
@@ -242,6 +265,11 @@ function App() {
   const activeMode = modes.find((item) => item.id === mode) ?? modes[0];
 
   useEffect(() => {
+    const roundLimit = isPremium ? selectedRoundLimit : 10;
+    if (roundLimit !== selectedRoundLimit) setSelectedRoundLimit(roundLimit);
+  }, [isPremium, selectedRoundLimit]);
+
+  useEffect(() => {
     if (!liveSessionId) return;
     if (!user || !firebaseConfigured || screen !== 'playing' || !currentRound) {
       if (user && firebaseConfigured) {
@@ -269,7 +297,7 @@ function App() {
 
   function startGame() {
     setLiveSessionId(crypto.randomUUID());
-    setRounds(createRounds(playableGames));
+    setRounds(createRounds(playableGames, isPremium ? selectedRoundLimit : 10));
     setRoundIndex(0);
     setAnswer(null);
     setWrongAnswers([]);
@@ -344,12 +372,43 @@ function App() {
     setScreen('playing');
   }
 
+  async function submitPremiumRequest() {
+    if (!user) {
+      setAccountOpen(true);
+      return;
+    }
+    setPremiumRequestBusy(true);
+    setPremiumRequestMessage('');
+    try {
+      const { requestPremiumReview } = await import('./firebase-store');
+      await requestPremiumReview(user);
+      setPremiumRequestPending(true);
+      setPremiumRequestMessage('Kérés elküldve. Az admin a fizetés ellenőrzése után aktiválja a Premium-tagságot.');
+    } catch {
+      setPremiumRequestMessage('Nem sikerült elküldeni a kérelmet. Ellenőrizd a bejelentkezést, majd próbáld újra.');
+    } finally {
+      setPremiumRequestBusy(false);
+    }
+  }
+
+  function togglePremiumTheme() {
+    if (!isPremium) {
+      setScreen('premium');
+      return;
+    }
+    setPremiumTheme((current) => {
+      const next = !current;
+      localStorage.setItem('gameguesser-premium-theme', String(next));
+      return next;
+    });
+  }
+
   const roundCount = rounds.length;
   const accuracy = stats.questionsPlayed === 0 ? 0 : Math.round((stats.correct / stats.questionsPlayed) * 100);
   const accountLabel = cloudStatus === 'saving' || cloudStatus === 'loading' ? 'Mentés…' : cloudStatus === 'offline' ? 'Offline mentés' : 'Felhőbe mentve';
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${premiumTheme && isPremium ? 'premium-theme' : ''}`}>
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
       <header className="topbar">
@@ -360,6 +419,7 @@ function App() {
         <div className="topbar-right">
           <span className="online-indicator"><i /> Napi kvíz elérhető</span>
           <button className="leaderboard-nav" onClick={() => setScreen('leaderboard')} aria-label="Ranglista megnyitása"><Trophy size={16} /><span>Ranglista</span></button>
+          <button className={`premium-nav ${isPremium ? 'is-premium' : ''}`} onClick={() => setScreen('premium')} aria-label="GameGuesser Premium"><Crown size={15} /><span>{isPremium ? 'Premium' : 'Premium'}</span></button>
           {user ? <button className="profile-chip account-chip" onClick={() => setAccountOpen(true)} aria-label="Fiók beállításai"><span className="avatar auth-avatar">{(user.displayName || user.email || 'G').slice(0, 1).toUpperCase()}</span><span>{user.displayName || user.email || 'Fiókom'}</span></button> : <button className="profile-chip account-chip" onClick={() => setAccountOpen(true)} aria-label="Bejelentkezés vagy fiók létrehozása"><span className="avatar">🎮</span><span>Fiók létrehozása</span></button>}
         </div>
       </header>
@@ -372,7 +432,7 @@ function App() {
                 <div className="eyebrow"><Sparkles size={14} /> A TE JÁTÉKISMERETED, A TE KIHÍVÁSOD</div>
                 <h1>Mennyire ismered<br />a <span>játékokat?</span></h1>
                 <p>Emojik, nyomok és fejtörők. Kapcsold be a gamer agyad, és találd ki, melyik játékra gondoltunk!</p>
-                <div className="hero-tags"><span>🎮 {games.length}+ játék</span><span>⚡ 4 játékmód</span><span>🏆 Saját rekordok</span></div>
+                <div className="hero-tags"><span>🎮 {games.length}+ játék</span><span>⚡ 4 játékmód</span><span>🏆 Saját rekordok</span>{isPremium && <span className="premium-hero-tag"><Crown size={12} /> PREMIUM</span>}</div>
               </div>
               <div className="hero-art" aria-hidden="true">
                 <div className="orbit orbit-a" /><div className="orbit orbit-b" />
@@ -395,8 +455,10 @@ function App() {
               <div className="stat-item"><span className="stat-icon blue"><Gamepad2 size={19} /></span><div><strong>{stats.gamesPlayed}</strong><small>Lejátszott kör</small></div></div>
             </section>
 
+            {isPremium && <section className="premium-stats-card"><div className="premium-stats-heading"><span><Crown size={15} /> PREMIUM STATISZTIKÁK</span><strong>Részletes teljesítmény</strong></div><div className="premium-stats-grid"><div><strong>{stats.totalScore.toLocaleString('hu-HU')}</strong><small>Összes szerzett pont</small></div><div><strong>{stats.questionsPlayed}</strong><small>Megválaszolt kérdés</small></div><div><strong>{accuracy}%</strong><small>Pontosság</small></div><div><strong>{stats.correct}</strong><small>Helyes válasz</small></div></div></section>}
+
             <section className="mode-section">
-              <div className="section-heading"><div><span className="section-kicker">VÁLASSZ KIHÍVÁST</span><h2>Hogyan játszunk?</h2></div><span className="round-note"><span className="live-dot" /> Egy kör · {Math.min(10, playableGames.length)} kérdés</span></div>
+              <div className="section-heading"><div><span className="section-kicker">VÁLASSZ KIHÍVÁST</span><h2>Hogyan játszunk?</h2></div><span className="round-note"><span className="live-dot" /> Egy kör · {Math.min(isPremium ? selectedRoundLimit : 10, playableGames.length)} kérdés</span></div>
               <div className="mode-grid">
                 {modes.map((item, index) => (
                   <button key={item.id} className={`mode-card ${mode === item.id ? 'selected' : ''} mode-${index}`} onClick={() => setMode(item.id)} aria-pressed={mode === item.id}>
@@ -407,9 +469,10 @@ function App() {
               </div>
               <div className="play-row">
                 <label className="category-select"><span>Kategória</span><select value={category} onChange={(event) => setCategory(event.target.value as 'Mind' | GameCategory)}>{categories.map((item) => <option key={item} value={item}>{item === 'Mind' ? 'Minden játék' : item}</option>)}</select></label>
-                <div className="play-actions"><span className="pool-count">{catalogReady ? `${playableGames.length} játék a pakliban` : 'Játéklista betöltése…'}</span><button className="primary-button" onClick={startGame} disabled={!catalogReady || playableGames.length === 0}>{catalogReady ? 'Játék indítása' : 'Betöltés…'} <ArrowRight size={18} /></button></div>
+                <div className="play-actions">{isPremium && <label className="premium-round-select"><span><Crown size={12} /> Kvíz hossza</span><select value={selectedRoundLimit} onChange={(event) => setSelectedRoundLimit(Number(event.target.value))}><option value={10}>10 kérdés</option><option value={20}>20 kérdés · Maraton</option></select></label>}<span className="pool-count">{catalogReady ? `${playableGames.length} játék a pakliban` : 'Játéklista betöltése…'}</span><button className="primary-button" onClick={startGame} disabled={!catalogReady || playableGames.length === 0}>{catalogReady ? 'Játék indítása' : 'Betöltés…'} <ArrowRight size={18} /></button></div>
               </div>
             </section>
+            {isPremium && <button className="premium-theme-toggle" onClick={togglePremiumTheme}><Crown size={14} /> {premiumTheme ? 'Arany téma bekapcsolva · Váltás' : 'Premium arany téma bekapcsolása'}</button>}
             <section className="duel-promo">
               <div className="duel-promo-icon"><Swords size={22} /></div>
               <div className="duel-promo-copy"><span>JÁTSSZATOK EGYÜTT</span><strong>Hívd ki a barátod vagy játsszatok együtt!</strong><small>Kétfős párbaj vagy korlátlan létszámú csoportszoba · 10 kérdés</small></div>
@@ -419,9 +482,10 @@ function App() {
           </>
         )}
 
-        {screen === 'duel' && <DuelRoom ownerUid={user?.uid} ownerName={user?.displayName || user?.email || 'Játékos'} onExit={() => setScreen('home')} />}
+        {screen === 'duel' && <DuelRoom ownerUid={user?.uid} ownerName={user?.displayName || user?.email || 'Játékos'} premium={isPremium} onOpenPremium={() => setScreen('premium')} onExit={() => setScreen('home')} />}
         {screen === 'admin' && isAdmin && user && <Suspense fallback={<div className="admin-loading"><span className="account-spinner">◌</span> Admin felület betöltése…</div>}><AdminPanel currentUid={user.uid} onExit={() => setScreen('home')} /></Suspense>}
         {screen === 'leaderboard' && <Suspense fallback={<div className="leaderboard-loading"><span className="account-spinner">◌</span> Ranglista betöltése…</div>}><LeaderboardPanel currentUid={user?.uid ?? null} onExit={() => setScreen('home')} /></Suspense>}
+        {screen === 'premium' && <Suspense fallback={<div className="leaderboard-loading"><span className="account-spinner">◌</span> Premium betöltése…</div>}><PremiumPanel isSignedIn={!!user} isPremium={isPremium} requestPending={premiumRequestPending} requestBusy={premiumRequestBusy} requestMessage={premiumRequestMessage} onRequestReview={() => void submitPremiumRequest()} onSignIn={() => { setScreen('home'); setAccountOpen(true); }} onExit={() => setScreen('home')} /></Suspense>}
 
         {screen === 'playing' && currentRound && (
           <section className="game-screen">

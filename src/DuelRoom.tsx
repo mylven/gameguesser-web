@@ -30,7 +30,7 @@ type DuelMessage =
   | { type: 'start'; snapshot: DuelSnapshot }
   | { type: 'state'; snapshot: DuelSnapshot }
   | { type: 'answer'; title: string };
-type Props = { ownerUid?: string; ownerName: string; onExit: () => void };
+type Props = { ownerUid?: string; ownerName: string; premium: boolean; onOpenPremium: () => void; onExit: () => void };
 
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const TIMEOUT_ANSWER = '__TIMEOUT__';
@@ -51,9 +51,9 @@ function shuffle<T,>(items: T[]): T[] {
   return result;
 }
 
-function createDuelRounds(mode: DuelMode): Round[] {
+function createDuelRounds(mode: DuelMode, roundLimit: number): Round[] {
   const deck = mode === 'image' ? games.filter((game) => steamAppIds[game.title] !== undefined) : games;
-  return shuffle(deck).slice(0, 10).map((game) => ({
+  return shuffle(deck).slice(0, Math.min(roundLimit, deck.length)).map((game) => ({
     game,
     choices: shuffle([game, ...shuffle(games.filter((item) => item.title !== game.title)).slice(0, 3)]),
   }));
@@ -63,11 +63,11 @@ function makeRoomCode(): string {
   return Array.from({ length: 6 }, () => ROOM_ALPHABET[Math.floor(Math.random() * ROOM_ALPHABET.length)]).join('');
 }
 
-function makeInitialSnapshot(settings: DuelSettings, players: RoomPlayer[], roomType: RoomType): DuelSnapshot {
+function makeInitialSnapshot(settings: DuelSettings, players: RoomPlayer[], roomType: RoomType, roundLimit: number): DuelSnapshot {
   const scores = Object.fromEntries(players.map((player) => [player.id, 0])) as Record<Player, number>;
   const answers = Object.fromEntries(players.map((player) => [player.id, null])) as Record<Player, string | null>;
   return {
-    rounds: createDuelRounds(settings.mode),
+    rounds: createDuelRounds(settings.mode, roundLimit),
     roundIndex: 0,
     settings,
     roomType,
@@ -92,7 +92,7 @@ function makePeerOptions() {
   return { config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] } };
 }
 
-function DuelRoom({ ownerUid, ownerName, onExit }: Props) {
+function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props) {
   const [stage, setStage] = useState<'setup' | 'room' | 'playing'>('setup');
   const [playerName, setPlayerName] = useState('Játékos');
   const [codeInput, setCodeInput] = useState('');
@@ -103,6 +103,7 @@ function DuelRoom({ ownerUid, ownerName, onExit }: Props) {
   const [selectedMode, setSelectedMode] = useState<DuelMode>('emoji');
   const [timedDuel, setTimedDuel] = useState(false);
   const [timeLimitSeconds, setTimeLimitSeconds] = useState(30);
+  const [roundLimit, setRoundLimit] = useState(10);
   const [clockNow, setClockNow] = useState(Date.now());
   const [status, setStatus] = useState('Hozz létre szobát, vagy csatlakozz egy meglévőhöz.');
   const [error, setError] = useState('');
@@ -335,7 +336,7 @@ function DuelRoom({ ownerUid, ownerName, onExit }: Props) {
     const connectedPlayers = roomPlayersRef.current.filter((player) => player.connected);
     if (role !== 'host' || connectedPlayers.length < 2) return;
     const settings: DuelSettings = { mode: selectedMode, timeLimitSeconds: timedDuel ? timeLimitSeconds : null };
-    const initial = makeInitialSnapshot(settings, connectedPlayers, roomType);
+    const initial = makeInitialSnapshot(settings, connectedPlayers, roomType, premium ? roundLimit : 10);
     snapshotRef.current = initial;
     setSnapshot(initial);
     liveSessionIdRef.current = crypto.randomUUID();
@@ -448,7 +449,7 @@ function DuelRoom({ ownerUid, ownerName, onExit }: Props) {
         <div className="duel-intro">
           <span className="section-kicker">HÍVD KI A BARÁTAIDAT</span>
           <h1>Ki ismeri jobban<br /><span>a játékokat?</span></h1>
-          <p>Hozzatok létre egy szobát, osszátok meg a kódot, és küzdjetek meg 10 játékfelismerő kérdésben baráti társaságban!</p>
+          <p>Hozzatok létre egy szobát, osszátok meg a kódot, és küzdjetek meg játékfelismerő kérdésekben baráti társaságban!</p>
           <div className="duel-feature-tags"><span><UsersRound size={14} /> Tetszőleges létszám</span><span><Trophy size={14} /> 10 kérdés</span><span><Wifi size={14} /> Valós idejű</span></div>
         </div>
         <div className="duel-setup-grid">
@@ -500,6 +501,13 @@ function DuelRoom({ ownerUid, ownerName, onExit }: Props) {
               <span>{item.icon}</span><strong>{item.title}</strong><small>{item.detail}</small>
             </button>)}
           </div>
+          <label className="duel-round-setting">Kérdések száma
+            <select value={premium ? roundLimit : 10} onChange={(event) => setRoundLimit(Number(event.target.value))} disabled={!premium}>
+              <option value={10}>10 kérdés</option>
+              {premium && <option value={20}>20 kérdés · Premium maraton</option>}
+            </select>
+            {!premium && <button type="button" className="duel-premium-unlock" onClick={onOpenPremium}><Crown size={13} /> Premium · 20 kérdés</button>}
+          </label>
           <div className="duel-timer-settings">
             <button className={`timer-toggle ${timedDuel ? 'enabled' : ''}`} onClick={() => setTimedDuel((current) => !current)} aria-pressed={timedDuel}>
               <span className="timer-toggle-indicator"><Clock3 size={14} /></span>

@@ -67,11 +67,73 @@ export async function hasAdminAccess(user: User): Promise<boolean> {
   return adminSnapshot.exists() && adminSnapshot.data().active === true;
 }
 
+export async function hasPremiumAccess(user: User): Promise<boolean> {
+  if (!firebaseConfigured || !auth) return false;
+  const entitlement = await getDoc(doc(getFirestore(auth.app), 'premiumEntitlements', user.uid));
+  return entitlement.exists() && entitlement.data().active === true;
+}
+
+export async function hasPendingPremiumRequest(user: User): Promise<boolean> {
+  if (!firebaseConfigured || !auth) return false;
+  const request = await getDoc(doc(getFirestore(auth.app), 'premiumRequests', user.uid));
+  return request.exists();
+}
+
+export async function requestPremiumReview(user: User): Promise<void> {
+  if (!firebaseConfigured || !auth || auth.currentUser?.uid !== user.uid || !user.email) {
+    throw new Error('A Premium-igényléshez jelentkezz be e-mail-címmel.');
+  }
+  await setDoc(doc(getFirestore(auth.app), 'premiumRequests', user.uid), {
+    displayName: user.displayName?.trim().slice(0, 32) || `Játékos ${user.uid.slice(-4)}`,
+    email: user.email,
+    requestedAt: serverTimestamp(),
+  });
+}
+
+export type PremiumRequest = {
+  uid: string;
+  displayName: string;
+  email: string;
+  requestedAt: Date | null;
+};
+
+export async function listPremiumRequests(): Promise<PremiumRequest[]> {
+  if (!firebaseConfigured || !auth) throw new Error('A fiókok használatához előbb be kell állítani a Firebase-t.');
+  const snapshots = await getDocs(collection(getFirestore(auth.app), 'premiumRequests'));
+  return snapshots.docs.map((snapshot) => {
+    const data = snapshot.data();
+    const timestamp = data.requestedAt;
+    return {
+      uid: snapshot.id,
+      displayName: typeof data.displayName === 'string' ? data.displayName : 'Játékos',
+      email: typeof data.email === 'string' ? data.email : '',
+      requestedAt: timestamp && typeof timestamp.toDate === 'function' ? timestamp.toDate() as Date : null,
+    };
+  }).sort((left, right) => (right.requestedAt?.getTime() ?? 0) - (left.requestedAt?.getTime() ?? 0));
+}
+
+export async function grantPremiumAccess(request: PremiumRequest): Promise<void> {
+  if (!firebaseConfigured || !auth) throw new Error('A Firebase nincs beállítva.');
+  const database = getFirestore(auth.app);
+  await setDoc(doc(database, 'premiumEntitlements', request.uid), {
+    active: true,
+    displayName: request.displayName,
+    updatedAt: serverTimestamp(),
+  });
+  await deleteDoc(doc(database, 'premiumRequests', request.uid));
+}
+
+export async function revokePremiumAccess(uid: string): Promise<void> {
+  if (!firebaseConfigured || !auth) throw new Error('A Firebase nincs beállítva.');
+  await deleteDoc(doc(getFirestore(auth.app), 'premiumEntitlements', uid));
+}
+
 export type AdminProfile = {
   uid: string;
   email: string | null;
   displayName: string | null;
   isAdmin: boolean;
+  isPremium: boolean;
   stats: CloudProfile['stats'];
   progress: CloudProfile['progress'];
   updatedAt: Date | null;
@@ -80,11 +142,13 @@ export type AdminProfile = {
 export async function listAdminProfiles(): Promise<AdminProfile[]> {
   if (!auth || !firebaseConfigured) throw new Error('A Firebase nincs beállítva.');
   const database = getFirestore(auth.app);
-  const [snapshots, admins] = await Promise.all([
+  const [snapshots, admins, entitlements] = await Promise.all([
     getDocs(collection(database, 'users')),
     getDocs(collection(database, 'admins')),
+    getDocs(collection(database, 'premiumEntitlements')),
   ]);
   const adminUids = new Set(admins.docs.filter((snapshot) => snapshot.data().active === true).map((snapshot) => snapshot.id));
+  const premiumUids = new Set(entitlements.docs.filter((snapshot) => snapshot.data().active === true).map((snapshot) => snapshot.id));
   return snapshots.docs.map((snapshot) => {
     const data = snapshot.data();
     const timestamp = data.updatedAt;
@@ -93,6 +157,7 @@ export async function listAdminProfiles(): Promise<AdminProfile[]> {
       email: typeof data.email === 'string' ? data.email : null,
       displayName: typeof data.displayName === 'string' ? data.displayName : null,
       isAdmin: adminUids.has(snapshot.id),
+      isPremium: premiumUids.has(snapshot.id),
       stats: data.stats as CloudProfile['stats'],
       progress: (data.progress ?? null) as CloudProfile['progress'],
       updatedAt: timestamp && typeof timestamp.toDate === 'function' ? timestamp.toDate() as Date : null,
