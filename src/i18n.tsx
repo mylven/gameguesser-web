@@ -303,6 +303,7 @@ const english: Record<string, string> = {
   'Indíts egy közös játékot, majd küldd el a szobakódot az egész társaságnak.': 'Start a game and share the room code with everyone.',
   'Szobatípus': 'Room type',
   'Párbaj': 'Duel',
+  'PÁRBAJ': 'DUEL',
   'Te + 1 ellenfél': 'You + 1 opponent',
   'Csoportszoba': 'Group room',
   'Korlátlan létszám': 'Unlimited players',
@@ -333,6 +334,13 @@ const english: Record<string, string> = {
   'Premium · 20 kérdés': 'Premium · 20 questions',
   'Időre menjen a párbaj': 'Timed duel',
   'A gyorsabb helyes válasz több pontot ér': 'Faster correct answers earn more points',
+  'Életre menő csata': 'Battle mode',
+  '1000 élet · a gyorsabb helyes válasz sebez · sorozat-szorzó': '1000 HP · faster correct answers deal damage · streak multiplier',
+  'Csata módban az időmérő mindig aktív': 'The timer is always on in battle mode',
+  'ÉLETRE MENŐ CSATA': 'BATTLE MODE',
+  '⚔️ A GYORSABB TALÁLAT SEBEZ': '⚔️ THE FASTER CORRECT ANSWER DEALS DAMAGE',
+  'találati sorozat': 'hit streak',
+  'ÉLET': 'HP',
   'Kikapcsolva · nyugodt tempóban játszhattok': 'Off · play at your own pace',
   'Kérdésenként': 'Per question',
   'Az elmosódott kép a visszaszámlálás alatt fokozatosan kiélesedik.': 'The blurred image gradually sharpens during the countdown.',
@@ -365,6 +373,7 @@ const english: Record<string, string> = {
   'TALÁLD KI A JÁTÉKOT': 'GUESS THE GAME',
   'A félidőnél egy extra nyom is érkezik — figyeld, hogyan élesedik a kép!': 'An extra hint appears halfway—watch the image sharpen!',
   'Következő kérdésre várunk': 'Waiting for the next question',
+  'Következő kérdés': 'Next question',
   'Lejárt az idő — az eredményre várunk': 'Time is up—we are waiting for the results',
   'Tipp elküldve —': 'Answer submitted —',
   'játékos még válaszol': 'players still answering',
@@ -473,6 +482,12 @@ export function AutoTranslate({ children }: { children: ReactNode }) {
     if (roomPlayers) return `${roomPlayers[1]} players in the room.`;
     const score = text.match(/^([+−-]?\d+) pont$/);
     if (score) return `${score[1]} points`;
+    const battleHealth = text.match(/^(\d+) \/ 1000 ÉLET$/);
+    if (battleHealth) return `${battleHealth[1]} / 1000 HP`;
+    const battleStreak = text.match(/^([\d.]+)× · (\d+) találati sorozat$/);
+    if (battleStreak) return `${battleStreak[1]}× · ${battleStreak[2]} hit streak`;
+    const finalBattleHealth = text.match(/^(\d+) \/ 1000$/);
+    if (finalBattleHealth) return `${finalBattleHealth[1]} / 1000 HP`;
     const streak = text.match(/^(\d+) sorozat$/);
     if (streak) return `${streak[1]} streak`;
     const minutes = text.match(/^(\d+) mp$/);

@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, Clipboard, Clock3, Crown, Image as ImageIcon, Lightbulb, LoaderCircle, Swords, Trophy, UsersRound, Wifi, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Clipboard, Clock3, Crown, Heart, Image as ImageIcon, Lightbulb, LoaderCircle, Swords, Trophy, UsersRound, Wifi, X, Zap } from 'lucide-react';
 import { Peer, type DataConnection } from 'peerjs';
 import { games, steamAppIds, type Game } from './games';
 import { localizeGame } from './game-localization';
 import { AutoTranslate, useI18n } from './i18n';
+import './battle.css';
 
 type Round = { game: Game; choices: Game[] };
 type Player = string;
 type RoomPlayer = { id: Player; name: string; connected: boolean };
 type RoomType = 'duel' | 'group';
 type DuelMode = 'emoji' | 'clues' | 'features' | 'image';
-type DuelSettings = { mode: DuelMode; timeLimitSeconds: number | null };
+type DuelSettings = { mode: DuelMode; timeLimitSeconds: number | null; battleMode: boolean };
+type BattleEvent = { attacker: Player | null; defender: Player | null; damage: number; multiplier: number; advantageSeconds: number; forfeit?: boolean };
 type DuelSnapshot = {
   rounds: Round[];
   roundIndex: number;
@@ -21,6 +23,10 @@ type DuelSnapshot = {
   players: RoomPlayer[];
   scores: Record<Player, number>;
   answers: Record<Player, string | null>;
+  answerTimes: Record<Player, number | null>;
+  health: Record<Player, number>;
+  hitStreaks: Record<Player, number>;
+  battleEvent: BattleEvent | null;
   finished: boolean;
 };
 type DuelMessage =
@@ -68,6 +74,9 @@ function makeRoomCode(): string {
 function makeInitialSnapshot(settings: DuelSettings, players: RoomPlayer[], roomType: RoomType, roundLimit: number): DuelSnapshot {
   const scores = Object.fromEntries(players.map((player) => [player.id, 0])) as Record<Player, number>;
   const answers = Object.fromEntries(players.map((player) => [player.id, null])) as Record<Player, string | null>;
+  const answerTimes = Object.fromEntries(players.map((player) => [player.id, null])) as Record<Player, number | null>;
+  const health = Object.fromEntries(players.map((player) => [player.id, 1000])) as Record<Player, number>;
+  const hitStreaks = Object.fromEntries(players.map((player) => [player.id, 0])) as Record<Player, number>;
   return {
     rounds: createDuelRounds(settings.mode, roundLimit),
     roundIndex: 0,
@@ -78,8 +87,29 @@ function makeInitialSnapshot(settings: DuelSettings, players: RoomPlayer[], room
     players,
     scores,
     answers,
+    answerTimes,
+    health,
+    hitStreaks,
+    battleEvent: null,
     finished: false,
   };
+}
+
+function describeBattleEvent(snapshot: DuelSnapshot, language: 'hu' | 'en'): string {
+  const event = snapshot.battleEvent;
+  if (!event?.attacker || !event.defender) {
+    return language === 'en'
+      ? 'No damage this round — answer faster or get it right first next time!'
+      : 'Ebben a körben nem volt sebzés — válaszolj gyorsabban, vagy találd el elsőként!';
+  }
+  const attacker = snapshot.players.find((player) => player.id === event.attacker)?.name ?? '';
+  const defender = snapshot.players.find((player) => player.id === event.defender)?.name ?? '';
+  if (event.forfeit) {
+    return language === 'en' ? `${defender} left the battle. ${attacker} wins by forfeit.` : `${defender} kilépett a csatából. ${attacker} feladással nyert.`;
+  }
+  return language === 'en'
+    ? `${attacker} dealt ${event.damage} damage to ${defender} (${event.multiplier.toFixed(1)}× combo, ${event.advantageSeconds.toFixed(1)}s faster).`
+    : `${attacker} ${event.damage} sebzést okozott ${defender} játékosnak (${event.multiplier.toFixed(1)}× szorzó, ${event.advantageSeconds.toFixed(1)} mp előny).`;
 }
 
 function friendlyPeerError(type: string): string {
@@ -105,6 +135,7 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
   const [roomPlayers, setRoomPlayers] = useState<RoomPlayer[]>([]);
   const [selectedMode, setSelectedMode] = useState<DuelMode>('emoji');
   const [timedDuel, setTimedDuel] = useState(false);
+  const [battleMode, setBattleMode] = useState(false);
   const [timeLimitSeconds, setTimeLimitSeconds] = useState(30);
   const [roundLimit, setRoundLimit] = useState(10);
   const [clockNow, setClockNow] = useState(Date.now());
@@ -159,6 +190,13 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
     snapshotRef.current = next;
     setSnapshot(next);
     publishLiveSnapshot(next);
+    if (next.finished && liveSessionIdRef.current) {
+      const liveSessionId = liveSessionIdRef.current;
+      liveSessionIdRef.current = null;
+      if (ownerUid) {
+        void import('./firebase-store').then(({ clearLiveGame }) => clearLiveGame(ownerUid, liveSessionId)).catch(() => undefined);
+      }
+    }
     if (sendToGuest) {
       connectionsRef.current.forEach((connection) => {
         if (connection.open) connection.send({ type: 'state', snapshot: next } satisfies DuelMessage);
@@ -179,21 +217,85 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
   function receiveAnswer(player: Player, title: string) {
     const current = snapshotRef.current;
     if (!current || current.finished || current.answers[player] !== null || !current.players.some((member) => member.id === player)) return;
-    if (current.settings.timeLimitSeconds && Date.now() >= current.startedAt + current.settings.timeLimitSeconds * 1000 && title !== TIMEOUT_ANSWER) {
+    const receivedAt = Date.now();
+    if (current.settings.timeLimitSeconds && receivedAt >= current.startedAt + current.settings.timeLimitSeconds * 1000 && title !== TIMEOUT_ANSWER) {
       title = TIMEOUT_ANSWER;
     }
     const answerIsCorrect = current.rounds[current.roundIndex]?.game.title === title;
-    const elapsedSeconds = Math.max(0, (Date.now() - current.startedAt) / 1000);
+    const answerAt = title === TIMEOUT_ANSWER && current.settings.timeLimitSeconds
+      ? current.startedAt + current.settings.timeLimitSeconds * 1000
+      : receivedAt;
+    const elapsedSeconds = Math.max(0, (answerAt - current.startedAt) / 1000);
     const answers = { ...current.answers, [player]: title };
+    const answerTimes = { ...current.answerTimes, [player]: answerAt };
+    const roundComplete = current.players.every((member) => answers[member.id] !== null);
     const earned = answerIsCorrect
       ? current.settings.timeLimitSeconds
         ? Math.max(10, Math.round(100 * (1 - (elapsedSeconds / current.settings.timeLimitSeconds) * 0.75)))
         : 100
       : 0;
+    const health = { ...current.health };
+    const hitStreaks = { ...current.hitStreaks };
+    let battleEvent: BattleEvent | null = current.battleEvent;
+    let finished: boolean = current.finished;
+    if (current.settings.battleMode && roundComplete) {
+      const disconnectedPlayer = current.players.find((member) => answers[member.id] === DISCONNECTED_ANSWER);
+      if (disconnectedPlayer) {
+        const opponent = current.players.find((member) => member.id !== disconnectedPlayer.id);
+        health[disconnectedPlayer.id] = 0;
+        if (opponent) {
+          hitStreaks[disconnectedPlayer.id] = 0;
+          battleEvent = { attacker: opponent.id, defender: disconnectedPlayer.id, damage: current.health[disconnectedPlayer.id] ?? 1000, multiplier: 1, advantageSeconds: 0, forfeit: true };
+        }
+        finished = true;
+      } else {
+        const correctPlayers = current.players.filter((member) => answers[member.id] === current.rounds[current.roundIndex]?.game.title);
+        let attacker: Player | null = null;
+        let defender: Player | null = null;
+        if (correctPlayers.length === 2) {
+          const [first, second] = correctPlayers;
+          if ((answerTimes[first.id] ?? Infinity) < (answerTimes[second.id] ?? Infinity)) {
+            attacker = first.id;
+            defender = second.id;
+          } else if ((answerTimes[second.id] ?? Infinity) < (answerTimes[first.id] ?? Infinity)) {
+            attacker = second.id;
+            defender = first.id;
+          }
+        } else if (correctPlayers.length === 1) {
+          const correctPlayer = correctPlayers[0];
+          const opponent = current.players.find((member) => member.id !== correctPlayer.id);
+          if (opponent && (answerTimes[correctPlayer.id] ?? Infinity) < (answerTimes[opponent.id] ?? Infinity)) {
+            attacker = correctPlayer.id;
+            defender = opponent.id;
+          }
+        }
+
+        if (attacker && defender) {
+          const advantageSeconds = Math.max(0, ((answerTimes[defender] ?? answerAt) - (answerTimes[attacker] ?? answerAt)) / 1000);
+          const timeLimit = current.settings.timeLimitSeconds ?? 30;
+          const baseDamage = Math.round(50 + 450 * Math.min(1, advantageSeconds / timeLimit));
+          const multiplier = Math.min(3, 1 + (hitStreaks[attacker] ?? 0) * 0.5);
+          const damage = Math.round(baseDamage * multiplier);
+          health[defender] = Math.max(0, (health[defender] ?? 1000) - damage);
+          hitStreaks[attacker] = (hitStreaks[attacker] ?? 0) + 1;
+          hitStreaks[defender] = 0;
+          battleEvent = { attacker, defender, damage, multiplier, advantageSeconds };
+          finished = health[defender] === 0;
+        } else {
+          current.players.forEach((member) => { hitStreaks[member.id] = 0; });
+          battleEvent = { attacker: null, defender: null, damage: 0, multiplier: 1, advantageSeconds: 0 };
+        }
+      }
+    }
     const next: DuelSnapshot = {
       ...current,
       answers,
-      endedAt: current.players.every((member) => answers[member.id] !== null) ? Date.now() : null,
+      answerTimes,
+      endedAt: roundComplete ? receivedAt : null,
+      health,
+      hitStreaks,
+      battleEvent,
+      finished,
       scores: {
         ...current.scores,
         [player]: current.scores[player] + earned,
@@ -342,7 +444,7 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
   function startDuel() {
     const connectedPlayers = roomPlayersRef.current.filter((player) => player.connected);
     if (role !== 'host' || connectedPlayers.length < 2) return;
-    const settings: DuelSettings = { mode: selectedMode, timeLimitSeconds: timedDuel ? timeLimitSeconds : null };
+    const settings: DuelSettings = { mode: selectedMode, timeLimitSeconds: timedDuel || battleMode ? timeLimitSeconds : null, battleMode };
     const initial = makeInitialSnapshot(settings, connectedPlayers, roomType, premium ? roundLimit : 10);
     snapshotRef.current = initial;
     setSnapshot(initial);
@@ -370,22 +472,22 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
     if (role !== 'host' || !snapshot || !snapshot.players.every((player) => snapshot.answers[player.id] !== null)) return;
     if (snapshot.roundIndex >= snapshot.rounds.length - 1) {
       updateSnapshot({ ...snapshot, finished: true }, true);
-      const liveSessionId = liveSessionIdRef.current;
-      liveSessionIdRef.current = null;
-      if (ownerUid && liveSessionId) {
-        void import('./firebase-store').then(({ clearLiveGame }) => clearLiveGame(ownerUid, liveSessionId)).catch(() => undefined);
-      }
       setStatus('A párbaj véget ért.');
       return;
     }
+    const nextPlayers = snapshot.players.filter((player) => player.connected);
     updateSnapshot({
       ...snapshot,
       roundIndex: snapshot.roundIndex + 1,
       startedAt: Date.now(),
       endedAt: null,
-      answers: Object.fromEntries(snapshot.players.map((player) => [player.id, null])) as Record<Player, string | null>,
-      players: snapshot.players.filter((player) => player.connected),
-      scores: Object.fromEntries(snapshot.players.filter((player) => player.connected).map((player) => [player.id, snapshot.scores[player.id]])) as Record<Player, number>,
+      answers: Object.fromEntries(nextPlayers.map((player) => [player.id, null])) as Record<Player, string | null>,
+      answerTimes: Object.fromEntries(nextPlayers.map((player) => [player.id, null])) as Record<Player, number | null>,
+      players: nextPlayers,
+      scores: Object.fromEntries(nextPlayers.map((player) => [player.id, snapshot.scores[player.id]])) as Record<Player, number>,
+      health: Object.fromEntries(nextPlayers.map((player) => [player.id, snapshot.health[player.id] ?? 1000])) as Record<Player, number>,
+      hitStreaks: Object.fromEntries(nextPlayers.map((player) => [player.id, snapshot.hitStreaks[player.id] ?? 0])) as Record<Player, number>,
+      battleEvent: null,
     }, true);
     setImageUnavailable(false);
   }
@@ -404,8 +506,15 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
   const currentRound = storedRound ? { ...storedRound, game: localizeGame(storedRound.game, language) } : undefined;
   const roundComplete = !!snapshot && snapshot.players.every((player) => snapshot.answers[player.id] !== null);
   const myAnswer = role && snapshot ? snapshot.answers[role] : null;
-  const sortedPlayers = snapshot ? [...snapshot.players].sort((left, right) => (snapshot.scores[right.id] ?? 0) - (snapshot.scores[left.id] ?? 0)) : [];
-  const winningScore = sortedPlayers[0] && snapshot ? snapshot.scores[sortedPlayers[0].id] : 0;
+  const sortedPlayers = snapshot ? [...snapshot.players].sort((left, right) => snapshot.settings.battleMode
+    ? (snapshot.health[right.id] ?? 1000) - (snapshot.health[left.id] ?? 1000)
+    : (snapshot.scores[right.id] ?? 0) - (snapshot.scores[left.id] ?? 0)) : [];
+  const winningMetric = sortedPlayers[0] && snapshot
+    ? snapshot.settings.battleMode ? snapshot.health[sortedPlayers[0].id] ?? 1000 : snapshot.scores[sortedPlayers[0].id] ?? 0
+    : 0;
+  const tiedPlayers = snapshot ? sortedPlayers.filter((player) => (snapshot.settings.battleMode
+    ? snapshot.health[player.id] ?? 1000
+    : snapshot.scores[player.id] ?? 0) === winningMetric) : [];
   const timeLimit = snapshot?.settings.timeLimitSeconds ?? null;
   const timerTimestamp = roundComplete && snapshot?.endedAt !== null && snapshot?.endedAt !== undefined ? snapshot.endedAt : clockNow;
   const secondsRemaining = timeLimit && snapshot
@@ -469,7 +578,7 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
             <p>Indíts egy közös játékot, majd küldd el a szobakódot az egész társaságnak.</p>
             <div className="room-type-picker" role="group" aria-label="Szobatípus">
               <button className={`room-type-choice ${roomType === 'duel' ? 'selected' : ''}`} onClick={() => setRoomType('duel')} aria-pressed={roomType === 'duel'}><Swords size={16} /><span><strong>Párbaj</strong><small>Te + 1 ellenfél</small></span></button>
-              <button className={`room-type-choice ${roomType === 'group' ? 'selected' : ''}`} onClick={() => setRoomType('group')} aria-pressed={roomType === 'group'}><UsersRound size={16} /><span><strong>Csoportszoba</strong><small>Korlátlan létszám</small></span></button>
+              <button className={`room-type-choice ${roomType === 'group' ? 'selected' : ''}`} onClick={() => { setRoomType('group'); setBattleMode(false); }} aria-pressed={roomType === 'group'}><UsersRound size={16} /><span><strong>Csoportszoba</strong><small>Korlátlan létszám</small></span></button>
             </div>
             <label className="duel-input-label">Játékosnév<input value={playerName} maxLength={18} onChange={(event) => setPlayerName(event.target.value)} placeholder="Add meg a neved" /></label>
             <button className="primary-button duel-action" onClick={createRoom} disabled={!!peerRef.current}>{roomType === 'group' ? 'Csoportszobát hozok létre' : 'Párbajszobát hozok létre'} <ArrowRight size={17} /></button>
@@ -510,6 +619,11 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
               <span>{item.icon}</span><strong>{item.title}</strong><small>{item.detail}</small>
             </button>)}
           </div>
+          {roomType === 'duel' && <button type="button" className={`battle-toggle ${battleMode ? 'enabled' : ''}`} onClick={() => { const next = !battleMode; setBattleMode(next); if (next) setTimedDuel(true); }} aria-pressed={battleMode}>
+            <span className="battle-toggle-icon"><Heart size={17} /></span>
+            <span><strong>Életre menő csata</strong><small>1000 élet · a gyorsabb helyes válasz sebez · sorozat-szorzó</small></span>
+            <i className="timer-switch" />
+          </button>}
           <label className="duel-round-setting">Kérdések száma
             <select value={premium ? roundLimit : 10} onChange={(event) => setRoundLimit(Number(event.target.value))} disabled={!premium}>
               <option value={10}>10 kérdés</option>
@@ -518,14 +632,14 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
             {!premium && <button type="button" className="duel-premium-unlock" onClick={onOpenPremium}><Crown size={13} /> Premium · 20 kérdés</button>}
           </label>
           <div className="duel-timer-settings">
-            <button className={`timer-toggle ${timedDuel ? 'enabled' : ''}`} onClick={() => setTimedDuel((current) => !current)} aria-pressed={timedDuel}>
+            <button className={`timer-toggle ${timedDuel ? 'enabled' : ''}`} onClick={() => setTimedDuel((current) => !current)} aria-pressed={timedDuel} disabled={battleMode}>
               <span className="timer-toggle-indicator"><Clock3 size={14} /></span>
-              <span><strong>Időre menjen a párbaj</strong><small>{timedDuel ? 'A gyorsabb helyes válasz több pontot ér' : 'Kikapcsolva · nyugodt tempóban játszhattok'}</small></span>
+              <span><strong>Időre menjen a párbaj</strong><small>{battleMode ? 'Csata módban az időmérő mindig aktív' : timedDuel ? 'A gyorsabb helyes válasz több pontot ér' : 'Kikapcsolva · nyugodt tempóban játszhattok'}</small></span>
               <i className="timer-switch" />
             </button>
             {timedDuel && <label className="timer-duration">Kérdésenként
               <select value={timeLimitSeconds} onChange={(event) => setTimeLimitSeconds(Number(event.target.value))}>
-                {[15, 30, 45].map((seconds) => <option key={seconds} value={seconds}>{seconds} mp</option>)}
+                {[15, 30, 45].map((seconds) => <option key={seconds} value={seconds}>{seconds} {language === 'en' ? 'sec' : 'mp'}</option>)}
               </select>
             </label>}
           </div>
@@ -537,16 +651,21 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
       </div>}
 
       {stage === 'playing' && snapshot && currentRound && role && !snapshot.finished && <div className="duel-game">
-        <div className="duel-game-top"><div className="duel-room-tag"><Swords size={15} /> {snapshot.roomType === 'group' ? 'CSOPORTSZOBA' : 'PÁRBAJ'} <span>·</span> {roomCode}<i>{duelModes.find((item) => item.id === snapshot.settings.mode)?.title}</i></div><span>({snapshot.roundIndex + 1}/{snapshot.rounds.length})</span></div>
-        <div className="duel-scoreboard">
-          {sortedPlayers.map((player, index) => <div className={`duel-score-player ${player.id === role ? 'you' : ''}`} key={player.id}><span className="duel-score-avatar">{player.id === 'host' ? '👑' : ['🎮', '🕹️', '👾', '🧩', '🚀', '🎯'][index % 6]}</span><div><strong>{player.name} <small>{player.id === role ? 'TE' : player.id === 'host' ? 'HÁZIGAZDA' : ''}</small></strong><span>{snapshot.scores[player.id] ?? 0} pont</span></div></div>)}
+        <div className="duel-game-top"><div className="duel-room-tag"><Swords size={15} /> {snapshot.roomType === 'group' ? 'CSOPORTSZOBA' : 'PÁRBAJ'} <span>·</span> {roomCode}<i>{snapshot.settings.battleMode ? 'ÉLETRE MENŐ CSATA' : duelModes.find((item) => item.id === snapshot.settings.mode)?.title}</i></div><span>({snapshot.roundIndex + 1}/{snapshot.rounds.length})</span></div>
+        <div className={`duel-scoreboard ${snapshot.settings.battleMode ? 'battle-scoreboard' : ''}`}>
+          {sortedPlayers.map((player, index) => {
+            const health = Math.max(0, Math.min(1000, snapshot.health[player.id] ?? 1000));
+            const hitStreak = snapshot.hitStreaks[player.id] ?? 0;
+            const multiplier = Math.min(3, 1 + Math.max(0, hitStreak - 1) * 0.5);
+            return <div className={`duel-score-player ${player.id === role ? 'you' : ''}`} key={player.id}><span className="duel-score-avatar">{player.id === 'host' ? '👑' : ['🎮', '🕹️', '👾', '🧩', '🚀', '🎯'][index % 6]}</span><div><strong>{player.name} <small>{player.id === role ? 'TE' : player.id === 'host' ? 'HÁZIGAZDA' : ''}</small></strong>{snapshot.settings.battleMode ? <><span className="battle-health-label"><Heart size={12} /> {`${health} / 1000 ÉLET`}</span><div className="battle-health-track"><span style={{ width: `${health / 10}%` }} /></div><small className="battle-streak"><Zap size={11} /> {`${multiplier.toFixed(1)}× · ${hitStreak} találati sorozat`}</small></> : <span>{snapshot.scores[player.id] ?? 0} pont</span>}</div></div>;
+          })}
         </div>
         {timeLimit && <div className={`duel-countdown ${secondsRemaining !== null && secondsRemaining <= 5 ? 'urgent' : ''}`}>
-          <div className="countdown-caption"><span><Clock3 size={14} /> {roundComplete ? 'KÖR LEZÁRVA' : secondsRemaining === 0 ? 'LEJÁRT AZ IDŐ' : 'HÁTRALÉVŐ IDŐ'}</span><strong>{secondsRemaining ?? timeLimit}<small> mp</small></strong></div>
+          <div className="countdown-caption"><span><Clock3 size={14} /> {roundComplete ? 'KÖR LEZÁRVA' : secondsRemaining === 0 ? 'LEJÁRT AZ IDŐ' : 'HÁTRALÉVŐ IDŐ'}</span><strong>{secondsRemaining ?? timeLimit}<small>{language === 'en' ? ' sec' : ' mp'}</small></strong></div>
           <div className="countdown-track"><span style={{ width: `${timerProgress * 100}%` }} /></div>
         </div>}
         <div className="duel-question-card">
-          <div className="duel-question-meta"><span>KÉRDÉS {String(snapshot.roundIndex + 1).padStart(2, '0')}</span><span>🎮 KI ISMERI JOBBAN?</span></div>
+          <div className="duel-question-meta"><span>KÉRDÉS {String(snapshot.roundIndex + 1).padStart(2, '0')}</span><span>{snapshot.settings.battleMode ? '⚔️ A GYORSABB TALÁLAT SEBEZ' : '🎮 KI ISMERI JOBBAN?'}</span></div>
           {snapshot.settings.mode === 'image' ? <div className="duel-image-frame">
             {!imageUnavailable && <img src={`https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${steamAppIds[currentRound.game.title]}/header.jpg`} alt="Kitalálandó játékkép" style={{ filter: `blur(${timeLimit ? Math.max(0, 22 * (1 - timerProgress)) : 0}px)` }} onError={() => setImageUnavailable(true)} />}
             {imageUnavailable && <div className="duel-image-fallback" style={{ filter: `blur(${timeLimit ? Math.max(0, 22 * (1 - timerProgress)) : 0}px)` }} aria-hidden="true">{currentRound.game.emojis}</div>}
@@ -567,7 +686,7 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
             })}
           </div>
           {roundComplete ? <div className="duel-round-result">
-            <div><strong>{currentRound.game.title}</strong><span>{snapshot.players.map((player) => `${player.id === role ? 'Te' : player.name}: ${snapshot.answers[player.id] === TIMEOUT_ANSWER ? 'idő lejárt' : snapshot.answers[player.id] === DISCONNECTED_ANSWER ? 'kilépett' : snapshot.answers[player.id] === currentRound.game.title ? 'eltalálta' : 'nem találta el'}`).join(' · ')}</span></div>
+            <div><strong>{currentRound.game.title}</strong><span>{snapshot.settings.battleMode ? describeBattleEvent(snapshot, language) : snapshot.players.map((player) => `${player.id === role ? 'Te' : player.name}: ${snapshot.answers[player.id] === TIMEOUT_ANSWER ? 'idő lejárt' : snapshot.answers[player.id] === DISCONNECTED_ANSWER ? 'kilépett' : snapshot.answers[player.id] === currentRound.game.title ? 'eltalálta' : 'nem találta el'}`).join(' · ')}</span></div>
             {role === 'host' ? <button className="primary-button" onClick={advanceRound}>{snapshot.roundIndex === snapshot.rounds.length - 1 ? 'Eredmény' : 'Következő kérdés'} <ArrowRight size={16} /></button> : <span className="waiting-next"><LoaderCircle size={15} /> Következő kérdésre várunk</span>}
           </div> : <div className="duel-waiting-status">{secondsRemaining === 0 ? <><Clock3 size={15} /> Lejárt az idő — az eredményre várunk</> : pendingAnswer || myAnswer ? <><LoaderCircle size={15} /> Tipp elküldve — {snapshot.players.filter((player) => player.id !== role && snapshot.answers[player.id] === null).length} játékos még válaszol</> : <><UsersRound size={15} /> A szobában lévő játékosok válaszára várunk</>}</div>}
         </div>
@@ -575,9 +694,10 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
 
       {stage === 'playing' && snapshot?.finished && role && <div className="duel-result-card">
         <div className="duel-result-trophy">🏆</div><span className="section-kicker">PÁRBAJ VÉGE</span>
-        <h1>{sortedPlayers.filter((player) => snapshot.scores[player.id] === winningScore).length > 1 ? 'Döntetlen!' : sortedPlayers[0]?.id === role ? 'Győztél!' : 'Végeredmény!'}</h1>
-        <p>Lejátszottátok mind a {snapshot.rounds.length} kérdést. Íme a végső rangsor:</p>
-        <div className="duel-leaderboard">{sortedPlayers.map((player, index) => <div className={`duel-leader-row ${player.id === role ? 'you' : ''}`} key={player.id}><span className="leader-rank">{index + 1}.</span><strong>{player.name}{player.id === role ? ' (te)' : ''}</strong><span>{snapshot.scores[player.id] ?? 0} pont</span>{index === 0 && <Crown size={16} />}</div>)}</div>
+        <h1>{tiedPlayers.length > 1 ? 'Döntetlen!' : sortedPlayers[0]?.id === role ? 'Győztél!' : 'Végeredmény!'}</h1>
+        <p>{snapshot.settings.battleMode ? language === 'en' ? `The battle ended after ${snapshot.roundIndex + 1} questions. Remaining health decides the winner.` : `A csata ${snapshot.roundIndex + 1} kérdés után ért véget. A megmaradt élet döntött.` : `Lejátszottátok mind a ${snapshot.rounds.length} kérdést. Íme a végső rangsor:`}</p>
+        {snapshot.settings.battleMode && <div className="battle-final-event"><Zap size={15} /> {describeBattleEvent(snapshot, language)}</div>}
+        <div className="duel-leaderboard">{sortedPlayers.map((player, index) => <div className={`duel-leader-row ${player.id === role ? 'you' : ''}`} key={player.id}><span className="leader-rank">{index + 1}.</span><strong>{player.name}{player.id === role ? ' (te)' : ''}</strong><span>{snapshot.settings.battleMode ? <><Heart size={13} /> {`${snapshot.health[player.id] ?? 1000} / 1000`}</> : `${snapshot.scores[player.id] ?? 0} pont`}</span>{index === 0 && <Crown size={16} />}</div>)}</div>
         <button className="primary-button" onClick={onExit}>Új párbaj indítása <ArrowRight size={17} /></button>
       </div>}
 
