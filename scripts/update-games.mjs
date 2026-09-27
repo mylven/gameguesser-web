@@ -2,7 +2,7 @@ import { writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 const outputPath = fileURLToPath(new URL('../src/generated-games.json', import.meta.url));
-const maxGames = 2600;
+const maxGames = 6000;
 const excludedTitle = /soundtrack|dedicated server|benchmark|test server|wallpaper|editor|\bsdk\b|server|\bdemo\b|mod tools|blender|steamvr|soundpad|filmmaker|hentai|nude|porn|erotic|genital|huniecam|dating simulator|driver booster/i;
 
 function normalizedKey(title) {
@@ -15,7 +15,7 @@ function normalizedKey(title) {
 
 async function loadGames() {
   const results = [];
-  for (let page = 0; page < 5; page += 1) {
+  for (let page = 0; page < 10; page += 1) {
     const response = await fetch(`https://steamspy.com/api.php?request=all&page=${page}`, {
       headers: { 'user-agent': 'GameGuesserWeb/1.0 (game catalog build)' },
     });
@@ -30,7 +30,7 @@ async function loadGames() {
     return Number.isInteger(Number(game.appid))
       && title.length > 1
       && !excludedTitle.test(title)
-      && reviewCount >= 100;
+      && reviewCount >= 5;
   }).sort((left, right) => (
     Number(right.positive || 0) + Number(right.negative || 0)
     - Number(left.positive || 0) - Number(left.negative || 0)
@@ -53,7 +53,7 @@ async function loadGames() {
     });
     if (games.length >= maxGames) break;
   }
-  return games;
+  return games.sort((left, right) => left.title.localeCompare(right.title, 'en'));
 }
 
 try {

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { ArrowLeft, ArrowRight, Check, Flame, Gamepad2, Lightbulb, RotateCcw, Sparkles, Swords, Trophy, X } from 'lucide-react';
-import { categories, games, loadGameCatalog, steamAppIds, type Game, type GameCategory } from './games';
+import { categories, games, loadGameCatalog, refreshGameCatalog, steamAppIds, type Game, type GameCategory } from './games';
 import DuelRoom from './DuelRoom';
 import AccountModal from './AccountModal';
 import { auth, firebaseConfigured, hasAdminAccess, loadCloudProfile, saveCloudProfile, type CloudProfile, type SavedProgress } from './firebase';
@@ -121,12 +121,23 @@ function App() {
 
   useEffect(() => {
     let active = true;
+    let refreshTimer = 0;
     void loadGameCatalog().then((size) => {
       if (!active) return;
       setCatalogSize(size);
       setCatalogReady(true);
+      const refresh = () => {
+        void refreshGameCatalog().then((updatedSize) => {
+          if (active) setCatalogSize(updatedSize);
+        });
+      };
+      refresh();
+      refreshTimer = window.setInterval(refresh, 30 * 60 * 1000);
     });
-    return () => { active = false; };
+    return () => {
+      active = false;
+      window.clearInterval(refreshTimer);
+    };
   }, []);
 
   useEffect(() => {

@@ -142,41 +142,62 @@ const categoryEmojis: Record<GameCategory, string> = {
   'Egyéb': '🎮 🧩 ✨',
 };
 
+function mergeSteamRecords(records: SteamGameRecord[]): void {
+  const seenTitles = new Set(games.map((game) => canonicalTitle(game.title)));
+  const extraRecords = records.filter((record) => {
+    if (!record || !Number.isInteger(record.appId) || typeof record.title !== 'string') return false;
+    const key = canonicalTitle(record.title);
+    if (!key || seenTitles.has(key)) return false;
+    seenTitles.add(key);
+    return true;
+  });
+  const expandedGames: Game[] = extraRecords.map(({ title, developer }) => {
+    const category = inferCategory(title);
+    const words = title.trim().split(/\s+/).filter(Boolean);
+    const letters = [...title].filter((character) => /[\p{L}\p{N}]/u.test(character));
+    const firstCharacter = letters[0]?.toLocaleUpperCase('hu-HU') ?? '?';
+    const lastCharacter = letters[letters.length - 1]?.toLocaleUpperCase('hu-HU') ?? '?';
+    const studio = (developer ?? '').replace(/[.,;:!?]+$/, '').trim() || 'ismeretlen fejlesztő';
+    const clues: [string, string, string] = [
+      `A fejlesztője: ${studio}.`,
+      `A címe ${words.length} szóból és ${letters.length} betűből áll.`,
+      `A címe „${firstCharacter}” betűvel kezdődik, és „${lastCharacter}” betűre végződik.`,
+    ];
+    const features: [string, string, string] = [category, `${words.length} szavas cím`, `Fejlesztő: ${studio}`];
+    return { title, category, emojis: categoryEmojis[category], clues, features };
+  });
+  games.push(...expandedGames);
+  Object.assign(steamAppIds, Object.fromEntries(extraRecords.map((game) => [game.title, game.appId])));
+}
+
 let catalogLoadPromise: Promise<number> | null = null;
 
 export function loadGameCatalog(): Promise<number> {
   if (!catalogLoadPromise) {
     catalogLoadPromise = import('./generated-games.json')
       .then(({ default: rawRecords }) => {
-        const seenTitles = new Set(curatedGames.map((game) => canonicalTitle(game.title)));
-        const extraGameRecords = (rawRecords as SteamGameRecord[]).filter((game) => {
-          const key = canonicalTitle(game.title);
-          if (!key || seenTitles.has(key)) return false;
-          seenTitles.add(key);
-          return true;
-        });
-        const expandedGames: Game[] = extraGameRecords.map(({ title, developer }) => {
-          const category = inferCategory(title);
-          const words = title.trim().split(/\s+/).filter(Boolean);
-          const letters = [...title].filter((character) => /[\p{L}\p{N}]/u.test(character));
-          const firstCharacter = letters[0]?.toLocaleUpperCase('hu-HU') ?? '?';
-          const lastCharacter = letters[letters.length - 1]?.toLocaleUpperCase('hu-HU') ?? '?';
-          const studio = developer.replace(/[.,;:!?]+$/, '').trim() || 'ismeretlen fejlesztő';
-          const clues: [string, string, string] = [
-            `A fejlesztője: ${studio}.`,
-            `A címe ${words.length} szóból és ${letters.length} betűből áll.`,
-            `A címe „${firstCharacter}” betűvel kezdődik, és „${lastCharacter}” betűre végződik.`,
-          ];
-          const features: [string, string, string] = [category, `${words.length} szavas cím`, `Fejlesztő: ${studio}`];
-          return { title, category, emojis: categoryEmojis[category], clues, features };
-        });
-        games.push(...expandedGames);
-        Object.assign(steamAppIds, Object.fromEntries(extraGameRecords.map((game) => [game.title, game.appId])));
+        mergeSteamRecords(rawRecords as SteamGameRecord[]);
         return games.length;
       })
       .catch(() => games.length);
   }
   return catalogLoadPromise;
+}
+
+export async function refreshGameCatalog(): Promise<number> {
+  await loadGameCatalog();
+  try {
+    const cacheBuster = Math.floor(Date.now() / 1_000);
+    const response = await fetch(`https://raw.githubusercontent.com/mylven/gameguesser-web/main/src/generated-games.json?v=${cacheBuster}`, {
+      cache: 'no-store',
+    });
+    if (!response.ok) return games.length;
+    const records = await response.json() as SteamGameRecord[];
+    if (Array.isArray(records)) mergeSteamRecords(records);
+  } catch {
+    // Keep the checked-in catalog when the network is unavailable.
+  }
+  return games.length;
 }
 
 export const categories: Array<'Mind' | GameCategory> = [
