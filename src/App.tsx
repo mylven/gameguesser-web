@@ -7,9 +7,10 @@ import AccountModal from './AccountModal';
 import { auth, firebaseConfigured, hasAdminAccess, loadCloudProfile, saveCloudProfile, type CloudProfile, type SavedProgress } from './firebase';
 
 const AdminPanel = lazy(() => import('./AdminPanel'));
+const LeaderboardPanel = lazy(() => import('./Leaderboard'));
 
 type ModeId = 'emoji' | 'clues' | 'features' | 'image';
-type Screen = 'home' | 'playing' | 'complete' | 'duel' | 'admin';
+type Screen = 'home' | 'playing' | 'complete' | 'duel' | 'admin' | 'leaderboard';
 type Stats = { gamesPlayed: number; questionsPlayed: number; correct: number; bestStreak: number; bestScore: number; totalScore: number };
 type Round = { game: Game; choices: Game[] };
 type GameProgress = { mode: ModeId; category: 'Mind' | GameCategory; rounds: Round[]; roundIndex: number; answer: string | null; wrongAnswers: string[]; revealedHints: number; score: number; streak: number; roundCorrect: number };
@@ -358,6 +359,7 @@ function App() {
         </button>
         <div className="topbar-right">
           <span className="online-indicator"><i /> Napi kvíz elérhető</span>
+          <button className="leaderboard-nav" onClick={() => setScreen('leaderboard')} aria-label="Ranglista megnyitása"><Trophy size={16} /><span>Ranglista</span></button>
           {user ? <button className="profile-chip account-chip" onClick={() => setAccountOpen(true)} aria-label="Fiók beállításai"><span className="avatar auth-avatar">{(user.displayName || user.email || 'G').slice(0, 1).toUpperCase()}</span><span>{user.displayName || user.email || 'Fiókom'}</span></button> : <button className="profile-chip account-chip" onClick={() => setAccountOpen(true)} aria-label="Bejelentkezés vagy fiók létrehozása"><span className="avatar">🎮</span><span>Fiók létrehozása</span></button>}
         </div>
       </header>
@@ -419,6 +421,7 @@ function App() {
 
         {screen === 'duel' && <DuelRoom ownerUid={user?.uid} ownerName={user?.displayName || user?.email || 'Játékos'} onExit={() => setScreen('home')} />}
         {screen === 'admin' && isAdmin && user && <Suspense fallback={<div className="admin-loading"><span className="account-spinner">◌</span> Admin felület betöltése…</div>}><AdminPanel currentUid={user.uid} onExit={() => setScreen('home')} /></Suspense>}
+        {screen === 'leaderboard' && <Suspense fallback={<div className="leaderboard-loading"><span className="account-spinner">◌</span> Ranglista betöltése…</div>}><LeaderboardPanel currentUid={user?.uid ?? null} onExit={() => setScreen('home')} /></Suspense>}
 
         {screen === 'playing' && currentRound && (
           <section className="game-screen">

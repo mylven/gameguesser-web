@@ -1,4 +1,4 @@
-import { collection, deleteDoc, doc, getDoc, getDocs, getFirestore, serverTimestamp, setDoc } from 'firebase/firestore/lite';
+import { collection, deleteDoc, doc, getDoc, getDocs, getFirestore, limit, orderBy, query, serverTimestamp, setDoc } from 'firebase/firestore/lite';
 import { auth, firebaseConfigured, type CloudProfile } from './firebase';
 import type { User } from 'firebase/auth';
 
@@ -18,12 +18,47 @@ export async function loadCloudProfile(user: User): Promise<CloudProfile | null>
 }
 
 export async function saveCloudProfile(user: User, profile: CloudProfile): Promise<void> {
+  if (!auth || !firebaseConfigured) throw new Error('A felhőmentés nincs beállítva.');
+  const database = getFirestore(auth.app);
   await setDoc(userDocument(user), {
     ...profile,
     email: user.email,
     displayName: user.displayName,
     updatedAt: serverTimestamp(),
   }, { merge: true });
+
+  const totalScore = Math.max(0, Math.floor(Number(profile.stats?.totalScore) || 0));
+  const gamesPlayed = Math.max(0, Math.floor(Number(profile.stats?.gamesPlayed) || 0));
+  if (totalScore > 0 || gamesPlayed > 0) {
+    await setDoc(doc(database, 'leaderboard', user.uid), {
+      displayName: user.displayName?.trim().slice(0, 32) || `Játékos ${user.uid.slice(-4)}`,
+      totalScore,
+      gamesPlayed,
+      updatedAt: serverTimestamp(),
+    });
+  }
+}
+
+export type LeaderboardEntry = {
+  id: string;
+  displayName: string;
+  totalScore: number;
+  gamesPlayed: number;
+};
+
+export async function listLeaderboard(): Promise<LeaderboardEntry[]> {
+  if (!auth || !firebaseConfigured) throw new Error('A ranglista felhőszolgáltatása nincs beállítva.');
+  const database = getFirestore(auth.app);
+  const results = await getDocs(query(collection(database, 'leaderboard'), orderBy('totalScore', 'desc'), limit(100)));
+  return results.docs.map((snapshot) => {
+    const data = snapshot.data();
+    return {
+      id: snapshot.id,
+      displayName: typeof data.displayName === 'string' ? data.displayName : 'Játékos',
+      totalScore: Math.max(0, Number(data.totalScore) || 0),
+      gamesPlayed: Math.max(0, Number(data.gamesPlayed) || 0),
+    };
+  });
 }
 
 export async function hasAdminAccess(user: User): Promise<boolean> {
@@ -77,7 +112,11 @@ export async function setAdminAccess(uid: string, email: string | null, active: 
 
 export async function deletePlayerProfile(uid: string): Promise<void> {
   if (!auth || !firebaseConfigured) throw new Error('A Firebase nincs beállítva.');
-  await deleteDoc(doc(getFirestore(auth.app), 'users', uid));
+  const database = getFirestore(auth.app);
+  await Promise.all([
+    deleteDoc(doc(database, 'users', uid)),
+    deleteDoc(doc(database, 'leaderboard', uid)),
+  ]);
 }
 
 export type LiveGameInput = {

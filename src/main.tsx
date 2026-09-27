@@ -9,6 +9,7 @@ import './group-room.css';
 import './account.css';
 import './account-status.css';
 import './admin.css';
+import './leaderboard.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

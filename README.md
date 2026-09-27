@@ -4,6 +4,8 @@ Magyar nyelvű, böngészőben játszható videojáték-kvíz. Négy játékmód
 
 A kvíz a beépített, részletesen szerkesztett címek mellett akár 6000 Steam-játékból álló SteamSpy-katalógust is használ. A GitHub Actions 30 percenként ellenőrzi az új Steam-játékokat, és változás esetén automatikusan frissíti a katalógust, majd újratelepíti a weboldalt. A már megnyitott oldal is 30 percenként lekéri az új listát; az új címek a következő kérdéssorokba kerülnek be. Minden új címhez automatikusan létrejönnek a fejlesztőre és a játékcím betű-/szószámára épülő feladatok. A lista frissítéséhez kézzel az `npm run catalog:refresh` parancs is futtatható.
 
+A **Ranglista** az első 100, bejelentkezett játékos összesített pontszáma alapján készül, és 30 másodpercenként frissül. A ranglista csak a megjelenített játékosnevet, az összpontszámot és a befejezett kvízek számát teszi nyilvánosan olvashatóvá; e-mail-címet nem. A vendégként, helyi böngészőben szerzett pontok nem kerülnek fel.
+
 A házigazda két szobatípus közül választhat: **Párbaj** (legfeljebb 2 játékos) vagy **Csoportszoba** (korlátlan számú csatlakozó). Mindkettőben az emoji-, nyom-, jellemző- és képfelismerő mód közül lehet választani, valamint kérdésenkénti 15, 30 vagy 45 másodperces időlimit állítható be. Időre játszva a gyorsabb helyes válasz több pontot ér; képfelismerő módban a kép a visszaszámlálás során kiélesedik. A szobakódot megosztva a játékosok csatlakoznak; a 10 kérdéses meccs válaszai és pontjai PeerJS/WebRTC kapcsolaton szinkronizálódnak, az eredmény a teljes társaság rangsorát mutatja. A játékhoz internetkapcsolat szükséges.
 
 ## Fiók és mentés más eszközre
