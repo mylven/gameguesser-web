@@ -431,6 +431,7 @@ function App() {
           <div className="language-switch" aria-label="Language / Nyelv"><button className={language === 'hu' ? 'selected' : ''} onClick={() => setLanguage('hu')} aria-pressed={language === 'hu'}>HU</button><button className={language === 'en' ? 'selected' : ''} onClick={() => setLanguage('en')} aria-pressed={language === 'en'}>EN</button></div>
           <span className="online-indicator"><i /> Napi kvíz elérhető</span>
           <button className="leaderboard-nav" onClick={() => setScreen('leaderboard')} aria-label="Ranglista megnyitása"><Trophy size={16} /><span>Ranglista</span></button>
+          <a className="topbar-discord-link" href="https://discord.gg/8rDPHVJnqz" target="_blank" rel="noopener noreferrer" aria-label={language === 'en' ? 'Join our Discord server' : 'Csatlakozz a Discord-szerverünkhöz'} title={language === 'en' ? 'Join our Discord server' : 'Csatlakozz a Discord-szerverünkhöz'}><MessageCircle size={15} /><span>Discord</span></a>
           <button className={`premium-nav ${isPremium ? 'is-premium' : ''}`} onClick={() => setScreen('premium')} aria-label="GameGuesser Premium"><Crown size={15} /><span>{isPremium ? 'Premium' : 'Premium'}</span></button>
           {user ? <button className="profile-chip account-chip" onClick={() => setAccountOpen(true)} aria-label="Fiók beállításai"><span className="avatar auth-avatar">{(user.displayName || user.email || 'G').slice(0, 1).toUpperCase()}</span><span>{user.displayName || user.email || 'Fiókom'}</span></button> : <button className="profile-chip account-chip" onClick={() => setAccountOpen(true)} aria-label="Bejelentkezés vagy fiók létrehozása"><span className="avatar">🎮</span><span>Fiók létrehozása</span></button>}
         </div>
@@ -547,7 +548,7 @@ function App() {
           </section>
         )}
       </main>
-      <div className="site-bottom"><span>GAMEGUESSER</span><a className="site-discord-link" href="https://discord.gg/8rDPHVJnqz" target="_blank" rel="noopener noreferrer"><MessageCircle size={14} />{language === 'en' ? 'Join our Discord' : 'Csatlakozz a Discord-szerverhez'}</a><span>{language === 'en' ? 'Guess it. Play more. 🕹️' : 'Találd ki. Játssz még. 🕹️'}</span></div>
+      <div className="site-bottom"><span>GAMEGUESSER</span><span>{language === 'en' ? 'Guess it. Play more. 🕹️' : 'Találd ki. Játssz még. 🕹️'}</span></div>
       {user && cloudStatus !== 'local' && <span className="account-cloud-indicator"><span className={`cloud-indicator-dot ${cloudStatus}`} />{accountLabel}</span>}
       <AccountModal user={user} isAdmin={isAdmin} open={accountOpen} onClose={() => setAccountOpen(false)} onOpenAdmin={() => { setAccountOpen(false); setScreen('admin'); }} cloudStatus={cloudStatus} />
     </div>
