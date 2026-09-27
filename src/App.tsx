@@ -145,6 +145,7 @@ function App() {
   });
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const themePickerRef = useRef<HTMLDivElement>(null);
+  const hasProAccess = isPremium || streamerApproved;
 
   useEffect(() => {
     if (!themePickerOpen) return;
@@ -320,13 +321,13 @@ function App() {
   const questionModeInfo = modes.find((item) => item.id === questionMode) ?? modes[0];
 
   useEffect(() => {
-    const roundLimit = isPremium ? selectedRoundLimit : 10;
+    const roundLimit = hasProAccess ? selectedRoundLimit : 10;
     if (roundLimit !== selectedRoundLimit) setSelectedRoundLimit(roundLimit);
-  }, [isPremium, selectedRoundLimit]);
+  }, [hasProAccess, selectedRoundLimit]);
 
   useEffect(() => {
-    if (!isPremium && (mode === 'marathon' || mode === 'survival')) setMode('emoji');
-  }, [isPremium, mode]);
+    if (!hasProAccess && (mode === 'marathon' || mode === 'survival')) setMode('emoji');
+  }, [hasProAccess, mode]);
 
   useEffect(() => {
     if (!liveSessionId) return;
@@ -356,7 +357,7 @@ function App() {
 
   function startGame() {
     setLiveSessionId(crypto.randomUUID());
-    setRounds(createRounds(playableGames, mode === 'marathon' || mode === 'survival' ? 20 : isPremium ? selectedRoundLimit : 10));
+    setRounds(createRounds(playableGames, mode === 'marathon' || mode === 'survival' ? 20 : hasProAccess ? selectedRoundLimit : 10));
     setRoundIndex(0);
     setAnswer(null);
     setWrongAnswers([]);
@@ -417,7 +418,7 @@ function App() {
 
   function resumeGame() {
     if (!progress || !isGameProgress(progress)) return;
-    if (!isPremium && (progress.mode === 'marathon' || progress.mode === 'survival')) {
+    if (!hasProAccess && (progress.mode === 'marathon' || progress.mode === 'survival')) {
       setProgress(null);
       return;
     }
@@ -460,7 +461,7 @@ function App() {
   }
 
   function togglePremiumTheme() {
-    if (!isPremium) {
+    if (!hasProAccess) {
       setScreen('premium');
       return;
     }
@@ -483,7 +484,7 @@ function App() {
 
   return (
     <AutoTranslate>
-    <div className={`app-shell ${premiumTheme && isPremium ? 'premium-theme' : ''}`} data-theme={themeId}>
+    <div className={`app-shell ${premiumTheme && hasProAccess ? 'premium-theme' : ''}`} data-theme={themeId}>
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
       <header className="topbar">
@@ -521,7 +522,7 @@ function App() {
                 <div className="eyebrow"><Sparkles size={14} /> A TE JÁTÉKISMERETED, A TE KIHÍVÁSOD</div>
                 <h1>{language === 'en' ? <>How well do you know<br />your <span>games?</span></> : <>Mennyire ismered<br />a <span>játékokat?</span></>}</h1>
                 <p>Emojik, nyomok és fejtörők. Kapcsold be a gamer agyad, és találd ki, melyik játékra gondoltunk!</p>
-                <div className="hero-tags"><span>🎮 {games.length}+ {language === 'en' ? 'games' : 'játék'}</span><span>⚡ {language === 'en' ? `${isPremium ? 6 : 4} game modes` : `${isPremium ? 6 : 4} játékmód`}</span><span>🏆 {language === 'en' ? 'Personal records' : 'Saját rekordok'}</span>{isPremium && <span className="premium-hero-tag"><Crown size={12} /> PREMIUM</span>}</div>
+                <div className="hero-tags"><span>🎮 {games.length}+ {language === 'en' ? 'games' : 'játék'}</span><span>⚡ {language === 'en' ? `${hasProAccess ? 6 : 4} game modes` : `${hasProAccess ? 6 : 4} játékmód`}</span><span>🏆 {language === 'en' ? 'Personal records' : 'Saját rekordok'}</span>{isPremium && <span className="premium-hero-tag"><Crown size={12} /> PREMIUM</span>}{streamerApproved && !isPremium && <span className="premium-hero-tag"><Radio size={12} /> STREAMER PRO</span>}</div>
               </div>
               <div className="hero-art" aria-hidden="true">
                 <div className="orbit orbit-a" /><div className="orbit orbit-b" />
@@ -531,7 +532,7 @@ function App() {
               </div>
             </section>
 
-            {progress && (isPremium || (progress.mode !== 'marathon' && progress.mode !== 'survival')) && <section className="resume-card">
+            {progress && (hasProAccess || (progress.mode !== 'marathon' && progress.mode !== 'survival')) && <section className="resume-card">
               <span className="resume-icon"><RotateCcw size={18} /></span>
               <span className="resume-copy"><strong>{language === 'en' ? 'You left a quiz unfinished' : 'Félbehagytál egy kvízt'}</strong><small>{modes.find((item) => item.id === progress.mode)?.title ?? (language === 'en' ? 'Quiz' : 'Kvíz')} · {language === 'en' ? `Question ${progress.roundIndex + 1} / ${progress.rounds.length}` : `${progress.roundIndex + 1}. kérdés / ${progress.rounds.length}`}</small></span>
               <button className="resume-button" onClick={resumeGame}>Folytatás <ArrowRight size={15} /></button>
@@ -544,12 +545,12 @@ function App() {
               <div className="stat-item"><span className="stat-icon blue"><Gamepad2 size={19} /></span><div><strong>{stats.gamesPlayed}</strong><small>Lejátszott kör</small></div></div>
             </section>
 
-            {isPremium && <section className="premium-stats-card"><div className="premium-stats-heading"><span><Crown size={15} /> PREMIUM STATISZTIKÁK</span><strong>Részletes teljesítmény</strong></div><div className="premium-stats-grid"><div><strong>{stats.totalScore.toLocaleString(language === 'en' ? 'en-US' : 'hu-HU')}</strong><small>Összes szerzett pont</small></div><div><strong>{stats.questionsPlayed}</strong><small>Megválaszolt kérdés</small></div><div><strong>{accuracy}%</strong><small>Pontosság</small></div><div><strong>{stats.correct}</strong><small>Helyes válasz</small></div></div></section>}
+            {hasProAccess && <section className="premium-stats-card"><div className="premium-stats-heading"><span><Crown size={15} /> PREMIUM STATISZTIKÁK</span><strong>Részletes teljesítmény</strong></div><div className="premium-stats-grid"><div><strong>{stats.totalScore.toLocaleString(language === 'en' ? 'en-US' : 'hu-HU')}</strong><small>Összes szerzett pont</small></div><div><strong>{stats.questionsPlayed}</strong><small>Megválaszolt kérdés</small></div><div><strong>{accuracy}%</strong><small>Pontosság</small></div><div><strong>{stats.correct}</strong><small>Helyes válasz</small></div></div></section>}
 
             <section className="mode-section">
-              <div className="section-heading"><div><span className="section-kicker">VÁLASSZ KIHÍVÁST</span><h2>Hogyan játszunk?</h2></div><span className="round-note"><span className="live-dot" /> Egy kör · {mode === 'marathon' || mode === 'survival' ? Math.min(20, playableGames.length) : Math.min(isPremium ? selectedRoundLimit : 10, playableGames.length)} kérdés</span></div>
+              <div className="section-heading"><div><span className="section-kicker">VÁLASSZ KIHÍVÁST</span><h2>Hogyan játszunk?</h2></div><span className="round-note"><span className="live-dot" /> Egy kör · {mode === 'marathon' || mode === 'survival' ? Math.min(20, playableGames.length) : Math.min(hasProAccess ? selectedRoundLimit : 10, playableGames.length)} kérdés</span></div>
               <div className="mode-grid">
-                {modes.filter((item) => isPremium || !item.premium).map((item, index) => (
+                {modes.filter((item) => hasProAccess || !item.premium).map((item, index) => (
                   <button key={item.id} className={`mode-card ${mode === item.id ? 'selected' : ''} mode-${index}`} onClick={() => setMode(item.id)} aria-pressed={mode === item.id}>
                     <span className="mode-card-top"><span className="mode-icon">{item.icon}</span><span className="mode-check"><Check size={14} /></span></span>
                     <span className="mode-label">{item.label}</span><strong>{item.title}</strong><span className="mode-detail">{item.detail}</span>
@@ -558,10 +559,10 @@ function App() {
               </div>
               <div className="play-row">
                 <label className="category-select"><span>{language === 'en' ? 'Category' : 'Kategória'}</span><select value={category} onChange={(event) => setCategory(event.target.value as 'Mind' | GameCategory)}>{categories.map((item) => <option key={item} value={item}>{language === 'en' ? ({ Mind: 'All games', Akció: 'Action', Kaland: 'Adventure', RPG: 'RPG', Indie: 'Indie', Stratégia: 'Strategy', Szimulátor: 'Simulation', Sport: 'Sports', Egyéb: 'Other' } as Record<string, string>)[item] : item === 'Mind' ? 'Minden játék' : item}</option>)}</select></label>
-                <div className="play-actions">{isPremium && mode !== 'marathon' && mode !== 'survival' && <label className="premium-round-select"><span><Crown size={12} /> {language === 'en' ? 'Quiz length' : 'Kvíz hossza'}</span><select value={selectedRoundLimit} onChange={(event) => setSelectedRoundLimit(Number(event.target.value))}><option value={10}>{language === 'en' ? '10 questions' : '10 kérdés'}</option><option value={20}>{language === 'en' ? '20 questions · Marathon' : '20 kérdés · Maraton'}</option></select></label>}<span className="pool-count">{catalogReady ? (language === 'en' ? `${playableGames.length} games in the deck` : `${playableGames.length} játék a pakliban`) : (language === 'en' ? 'Loading game list…' : 'Játéklista betöltése…')}</span><button className="primary-button" onClick={startGame} disabled={!catalogReady || playableGames.length === 0}>{catalogReady ? (language === 'en' ? 'Start quiz' : 'Játék indítása') : (language === 'en' ? 'Loading…' : 'Betöltés…')} <ArrowRight size={18} /></button></div>
+                <div className="play-actions">{hasProAccess && mode !== 'marathon' && mode !== 'survival' && <label className="premium-round-select"><span><Crown size={12} /> {language === 'en' ? 'Quiz length' : 'Kvíz hossza'}</span><select value={selectedRoundLimit} onChange={(event) => setSelectedRoundLimit(Number(event.target.value))}><option value={10}>{language === 'en' ? '10 questions' : '10 kérdés'}</option><option value={20}>{language === 'en' ? '20 questions · Marathon' : '20 kérdés · Maraton'}</option></select></label>}<span className="pool-count">{catalogReady ? (language === 'en' ? `${playableGames.length} games in the deck` : `${playableGames.length} játék a pakliban`) : (language === 'en' ? 'Loading game list…' : 'Játéklista betöltése…')}</span><button className="primary-button" onClick={startGame} disabled={!catalogReady || playableGames.length === 0}>{catalogReady ? (language === 'en' ? 'Start quiz' : 'Játék indítása') : (language === 'en' ? 'Loading…' : 'Betöltés…')} <ArrowRight size={18} /></button></div>
               </div>
             </section>
-            {isPremium && <button className="premium-theme-toggle" onClick={togglePremiumTheme}><Crown size={14} /> {premiumTheme ? 'Arany téma bekapcsolva · Váltás' : 'Premium arany téma bekapcsolása'}</button>}
+            {hasProAccess && <button className="premium-theme-toggle" onClick={togglePremiumTheme}><Crown size={14} /> {premiumTheme ? 'Arany téma bekapcsolva · Váltás' : 'Premium arany téma bekapcsolása'}</button>}
             <section className="duel-promo">
               <div className="duel-promo-icon"><Swords size={22} /></div>
               <div className="duel-promo-copy"><span>JÁTSSZATOK EGYÜTT</span><strong>Hívd ki a barátod vagy játsszatok együtt!</strong><small>Kétfős párbaj vagy korlátlan létszámú csoportszoba · Premium házigazdának 20 kérdés</small></div>
@@ -571,7 +572,7 @@ function App() {
           </>
         )}
 
-        {screen === 'duel' && <DuelRoom ownerUid={user?.uid} playerUid={user?.uid} ownerName={user?.displayName || user?.email || 'Játékos'} ownerAvatar={avatar} premium={isPremium} onOpenPremium={() => setScreen('premium')} onExit={() => setScreen('home')} />}
+        {screen === 'duel' && <DuelRoom ownerUid={user?.uid} playerUid={user?.uid} ownerName={user?.displayName || user?.email || 'Játékos'} ownerAvatar={avatar} premium={hasProAccess} onOpenPremium={() => setScreen('premium')} onExit={() => setScreen('home')} />}
         {screen === 'admin' && isAdmin && user && <Suspense fallback={<div className="admin-loading"><span className="account-spinner">◌</span> Admin felület betöltése…</div>}><AdminPanel currentUid={user.uid} onExit={() => setScreen('home')} /></Suspense>}
         {screen === 'leaderboard' && <Suspense fallback={<div className="leaderboard-loading"><span className="account-spinner">◌</span> Ranglista betöltése…</div>}><LeaderboardPanel currentUid={user?.uid ?? null} onExit={() => setScreen('home')} /></Suspense>}
         {screen === 'premium' && <Suspense fallback={<div className="leaderboard-loading"><span className="account-spinner">◌</span> Premium betöltése…</div>}><PremiumPanel isSignedIn={!!user} isPremium={isPremium} requestPending={premiumRequestPending} requestBusy={premiumRequestBusy} requestMessage={premiumRequestMessage} onRequestReview={() => void submitPremiumRequest()} onSignIn={() => { setScreen('home'); setAccountOpen(true); }} onExit={() => setScreen('home')} /></Suspense>}
