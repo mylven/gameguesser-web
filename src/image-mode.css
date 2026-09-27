@@ -1,0 +1,18 @@
+/* Fourth mode layout and progressive image challenge. */
+.mode-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+.primary-button:disabled{opacity:.45;cursor:not-allowed;box-shadow:none}
+.primary-button:disabled:hover{transform:none}
+.image-challenge{max-width:590px;margin:0 auto 5px}
+.image-frame{position:relative;aspect-ratio:2.14;overflow:hidden;border-radius:10px;border:1px solid #ffffff18;background:radial-gradient(ellipse at 50% 45%,#393047,#171823 75%);box-shadow:0 10px 35px #0004}
+.image-frame img{width:100%;height:100%;display:block;object-fit:cover;transform:scale(1.08);transition:filter .55s ease}
+.image-fallback{width:100%;height:100%;display:grid;place-items:center;color:#fff;font-size:40px;letter-spacing:7px;background:radial-gradient(ellipse at center,#65528e,#171823 72%);transition:filter .55s ease}
+.blur-label{position:absolute;right:10px;bottom:10px;border:1px solid #ffffff20;border-radius:20px;background:#0b0d15c9;color:#e0d8ff;padding:6px 10px;font-size:8px;font-weight:800;letter-spacing:.9px;backdrop-filter:blur(8px)}
+.image-hints{margin:11px auto 0;padding:11px 13px;border:1px solid #a28aff22;border-radius:8px;background:#9a7bff08}
+.image-hints-label{display:flex;align-items:center;gap:6px;color:#b7a3ff;font-size:9px;font-weight:800;letter-spacing:1px}
+.image-hints p{font-size:10px;line-height:1.5;color:#bfc0ce;margin:8px 0 0}
+.image-hints p b{color:#a990ff;margin-right:5px}
+.image-feedback{border-color:#ff777435}
+.tries-left{color:#ffb8aa;font-size:9px;white-space:nowrap}
+@media(max-width:760px){.mode-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:600px){.mode-grid{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){.image-frame img,.image-fallback{transition:none}}

@@ -1,0 +1,412 @@
+import { useEffect, useMemo, useState } from 'react';
+import { onAuthStateChanged, type User } from 'firebase/auth';
+import { ArrowLeft, ArrowRight, Check, Flame, Gamepad2, Lightbulb, RotateCcw, Sparkles, Swords, Trophy, X } from 'lucide-react';
+import { categories, games, steamAppIds, type Game, type GameCategory } from './games';
+import DuelRoom from './DuelRoom';
+import AccountModal from './AccountModal';
+import { auth, firebaseConfigured, loadCloudProfile, saveCloudProfile, type CloudProfile, type SavedProgress } from './firebase';
+
+type ModeId = 'emoji' | 'clues' | 'features' | 'image';
+type Screen = 'home' | 'playing' | 'complete' | 'duel';
+type Stats = { gamesPlayed: number; questionsPlayed: number; correct: number; bestStreak: number; bestScore: number; totalScore: number };
+type Round = { game: Game; choices: Game[] };
+type GameProgress = { mode: ModeId; category: 'Mind' | GameCategory; rounds: Round[]; roundIndex: number; answer: string | null; wrongAnswers: string[]; revealedHints: number; score: number; streak: number; roundCorrect: number };
+
+const modes: Array<{ id: ModeId; icon: string; title: string; detail: string; label: string }> = [
+  { id: 'emoji', icon: '🎭', title: 'Emoji-kvíz', detail: 'Ismerd fel a játékot néhány beszédes emojiból.', label: 'Gyors és vicces' },
+  { id: 'clues', icon: '🕵️', title: 'Nyomozó mód', detail: 'Fejtsd meg a játékot a fokozatosan felfedett nyomokból.', label: 'Gondolkodós' },
+  { id: 'features', icon: '🧩', title: 'Jellemzők', detail: 'Műfaj és játékmenet alapján találd meg a helyes választ.', label: 'Igazi rajongóknak' },
+  { id: 'image', icon: '🖼️', title: 'Képfelismerő', detail: 'Találd ki a játékot az elhomályosított képből.', label: 'Lásd meg a részleteket' },
+];
+
+const defaultStats: Stats = { gamesPlayed: 0, questionsPlayed: 0, correct: 0, bestStreak: 0, bestScore: 0, totalScore: 0 };
+
+function isGameProgress(value: unknown): value is GameProgress {
+  if (!value || typeof value !== 'object') return false;
+  const progress = value as Partial<GameProgress>;
+  const supportedModes: ModeId[] = ['emoji', 'clues', 'features', 'image'];
+  return supportedModes.includes(progress.mode as ModeId)
+    && ['Mind', ...categories.slice(1)].includes(progress.category as 'Mind' | GameCategory)
+    && Array.isArray(progress.rounds)
+    && progress.rounds.length > 0
+    && progress.rounds.length <= 10
+    && Number.isInteger(progress.roundIndex)
+    && (progress.roundIndex ?? -1) >= 0
+    && (progress.roundIndex ?? 11) < progress.rounds.length
+    && progress.rounds.every((round) => !!round && typeof round.game?.title === 'string' && Array.isArray(round.choices) && round.choices.every((choice) => typeof choice?.title === 'string'))
+    && Array.isArray(progress.wrongAnswers)
+    && Number.isFinite(progress.score)
+    && Number.isFinite(progress.revealedHints);
+}
+
+function loadLocalProfile(owner: string): CloudProfile {
+  try {
+    const saved = localStorage.getItem(`gameguesser-profile:${owner}`);
+    if (saved) {
+      const parsed = JSON.parse(saved) as Partial<CloudProfile>;
+      return {
+        stats: normalizeStats(parsed.stats),
+        progress: isGameProgress(parsed.progress) ? parsed.progress : null,
+      };
+    }
+    if (owner === 'guest') {
+      const legacy = localStorage.getItem('gameguesser-stats');
+      if (legacy) return { stats: normalizeStats(JSON.parse(legacy) as Partial<Stats>), progress: null };
+    }
+    return { stats: defaultStats, progress: null };
+  } catch {
+    return { stats: defaultStats, progress: null };
+  }
+}
+
+function normalizeStats(value: Partial<Stats> | undefined): Stats {
+  const source = value ?? {};
+  return {
+    gamesPlayed: Number.isFinite(source.gamesPlayed) ? Number(source.gamesPlayed) : 0,
+    questionsPlayed: Number.isFinite(source.questionsPlayed) ? Number(source.questionsPlayed) : (source.gamesPlayed ?? 0) * 10,
+    correct: Number.isFinite(source.correct) ? Number(source.correct) : 0,
+    bestStreak: Number.isFinite(source.bestStreak) ? Number(source.bestStreak) : 0,
+    bestScore: Number.isFinite(source.bestScore) ? Number(source.bestScore) : 0,
+    totalScore: Number.isFinite(source.totalScore) ? Number(source.totalScore) : 0,
+  };
+}
+
+function shuffle<T,>(items: T[]): T[] {
+  const result = [...items];
+  for (let i = result.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+function createRounds(pool: Game[]): Round[] {
+  const selected = shuffle(pool).slice(0, Math.min(10, pool.length));
+  return selected.map((game) => {
+    const distractors = shuffle(games.filter((candidate) => candidate.title !== game.title)).slice(0, 3);
+    return { game, choices: shuffle([game, ...distractors]) };
+  });
+}
+
+function App() {
+  const [screen, setScreen] = useState<Screen>('home');
+  const [mode, setMode] = useState<ModeId>('emoji');
+  const [category, setCategory] = useState<'Mind' | GameCategory>('Mind');
+  const [rounds, setRounds] = useState<Round[]>([]);
+  const [roundIndex, setRoundIndex] = useState(0);
+  const [answer, setAnswer] = useState<string | null>(null);
+  const [wrongAnswers, setWrongAnswers] = useState<string[]>([]);
+  const [revealedHints, setRevealedHints] = useState(1);
+  const [imageUnavailable, setImageUnavailable] = useState(false);
+  const [score, setScore] = useState(0);
+  const [streak, setStreak] = useState(0);
+  const [roundCorrect, setRoundCorrect] = useState(0);
+  const [stats, setStats] = useState<Stats>(() => loadLocalProfile('guest').stats);
+  const [progress, setProgress] = useState<GameProgress | null>(() => {
+    const saved = loadLocalProfile('guest').progress;
+    return isGameProgress(saved) ? saved : null;
+  });
+  const [user, setUser] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(!auth);
+  const [profileReady, setProfileReady] = useState(false);
+  const [profileOwner, setProfileOwner] = useState<string | null>(null);
+  const [cloudStatus, setCloudStatus] = useState<'local' | 'loading' | 'saving' | 'saved' | 'offline'>('local');
+  const [accountOpen, setAccountOpen] = useState(false);
+
+  useEffect(() => {
+    if (!auth) return;
+    return onAuthStateChanged(auth, (nextUser) => {
+      setUser(nextUser);
+      setAuthReady(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!authReady) return;
+    let active = true;
+    const owner = user?.uid ?? 'guest';
+    setProfileReady(false);
+    setProfileOwner(null);
+    setCloudStatus(user && firebaseConfigured ? 'loading' : 'local');
+
+    async function hydrateProfile() {
+      let nextProfile: CloudProfile;
+      if (user && firebaseConfigured) {
+        try {
+          const cloudProfile = await loadCloudProfile(user);
+          if (!active) return;
+          if (cloudProfile) {
+            nextProfile = {
+              stats: normalizeStats(cloudProfile.stats),
+              progress: isGameProgress(cloudProfile.progress) ? cloudProfile.progress : null,
+            };
+          } else {
+            // First sign-in imports this browser's anonymous progress into the new account.
+            nextProfile = loadLocalProfile('guest');
+            await saveCloudProfile(user, nextProfile);
+          }
+          if (!active) return;
+          setCloudStatus('saved');
+        } catch {
+          if (!active) return;
+          nextProfile = loadLocalProfile(owner);
+          setCloudStatus('offline');
+        }
+      } else {
+        nextProfile = loadLocalProfile(owner);
+      }
+      if (!active) return;
+      setStats(nextProfile.stats);
+      setProgress(isGameProgress(nextProfile.progress) ? nextProfile.progress : null);
+      setProfileOwner(owner);
+      setProfileReady(true);
+    }
+
+    void hydrateProfile();
+    return () => { active = false; };
+  }, [authReady, user?.uid]);
+
+  useEffect(() => {
+    if (!profileReady || !profileOwner || profileOwner !== (user?.uid ?? 'guest')) return;
+    const nextProgress: GameProgress | null = screen === 'playing' && rounds.length > 0
+      ? { mode, category, rounds, roundIndex, answer, wrongAnswers, revealedHints, score, streak, roundCorrect }
+      : screen === 'complete' ? null : progress;
+    const nextProfile: CloudProfile = { stats, progress: nextProgress as SavedProgress | null };
+    if (JSON.stringify(progress) !== JSON.stringify(nextProgress)) setProgress(nextProgress);
+    try {
+      localStorage.setItem(`gameguesser-profile:${profileOwner}`, JSON.stringify(nextProfile));
+      if (profileOwner === 'guest') localStorage.setItem('gameguesser-stats', JSON.stringify(stats));
+    } catch {
+      // Cloud saves still work even when local browser storage is unavailable.
+    }
+
+    if (!user || !firebaseConfigured) {
+      setCloudStatus('local');
+      return;
+    }
+    setCloudStatus('saving');
+    const timer = window.setTimeout(() => {
+      void saveCloudProfile(user, nextProfile)
+        .then(() => setCloudStatus('saved'))
+        .catch(() => setCloudStatus('offline'));
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [profileReady, profileOwner, user?.uid, stats, screen, mode, category, rounds, roundIndex, answer, wrongAnswers, revealedHints, score, streak, roundCorrect, progress]);
+
+  const availableGames = useMemo(
+    () => category === 'Mind' ? games : games.filter((game) => game.category === category),
+    [category],
+  );
+  const playableGames = mode === 'image'
+    ? availableGames.filter((game) => steamAppIds[game.title] !== undefined)
+    : availableGames;
+  const currentRound = rounds[roundIndex];
+  const activeMode = modes.find((item) => item.id === mode) ?? modes[0];
+
+  function startGame() {
+    setRounds(createRounds(playableGames));
+    setRoundIndex(0);
+    setAnswer(null);
+    setWrongAnswers([]);
+    setRevealedHints(1);
+    setImageUnavailable(false);
+    setScore(0);
+    setStreak(0);
+    setRoundCorrect(0);
+    setScreen('playing');
+  }
+
+  function chooseAnswer(title: string) {
+    if (!currentRound || answer !== null || wrongAnswers.includes(title)) return;
+    if (mode === 'image' && title !== currentRound.game.title) {
+      setWrongAnswers((current) => [...current, title]);
+      setRevealedHints((current) => Math.min(current + 1, 3));
+      setStreak(0);
+      return;
+    }
+    setAnswer(title);
+    if (title === currentRound.game.title) {
+      const earned = Math.max(40, 100 - (revealedHints - 1) * 20);
+      setScore((current) => current + earned);
+      setStreak((current) => {
+        const next = current + 1;
+        setStats((saved) => ({ ...saved, bestStreak: Math.max(saved.bestStreak, next) }));
+        return next;
+      });
+      setRoundCorrect((current) => current + 1);
+      setStats((saved) => ({ ...saved, correct: saved.correct + 1, totalScore: saved.totalScore + earned }));
+    } else {
+      setStreak(0);
+    }
+  }
+
+  function continueGame() {
+    if (roundIndex >= rounds.length - 1) {
+      setStats((saved) => ({
+        ...saved,
+        gamesPlayed: saved.gamesPlayed + 1,
+        questionsPlayed: saved.questionsPlayed + roundCount,
+        bestScore: Math.max(saved.bestScore, score),
+      }));
+      setScreen('complete');
+      return;
+    }
+    setRoundIndex((current) => current + 1);
+    setAnswer(null);
+    setWrongAnswers([]);
+    setRevealedHints(1);
+    setImageUnavailable(false);
+  }
+
+  function revealHint() {
+    setRevealedHints((current) => Math.min(current + 1, 3));
+  }
+
+  function resumeGame() {
+    if (!progress || !isGameProgress(progress)) return;
+    setMode(progress.mode);
+    setCategory(progress.category);
+    setRounds(progress.rounds);
+    setRoundIndex(progress.roundIndex);
+    setAnswer(progress.answer);
+    setWrongAnswers(progress.wrongAnswers);
+    setRevealedHints(progress.revealedHints);
+    setScore(progress.score);
+    setStreak(progress.streak);
+    setRoundCorrect(progress.roundCorrect);
+    setImageUnavailable(false);
+    setScreen('playing');
+  }
+
+  const roundCount = rounds.length;
+  const accuracy = stats.questionsPlayed === 0 ? 0 : Math.round((stats.correct / stats.questionsPlayed) * 100);
+  const accountLabel = cloudStatus === 'saving' || cloudStatus === 'loading' ? 'Mentés…' : cloudStatus === 'offline' ? 'Offline mentés' : 'Felhőbe mentve';
+
+  return (
+    <div className="app-shell">
+      <div className="ambient ambient-one" />
+      <div className="ambient ambient-two" />
+      <header className="topbar">
+        <button className="brand" onClick={() => setScreen('home')} aria-label="Vissza a főoldalra">
+          <span className="brand-mark"><Gamepad2 size={22} strokeWidth={2.4} /></span>
+          <span>game<span className="brand-accent">guesser</span><small>.gg</small></span>
+        </button>
+        <div className="topbar-right">
+          <span className="online-indicator"><i /> Napi kvíz elérhető</span>
+          {user ? <button className="profile-chip account-chip" onClick={() => setAccountOpen(true)} aria-label="Fiók beállításai"><span className="avatar auth-avatar">{(user.displayName || user.email || 'G').slice(0, 1).toUpperCase()}</span><span>{user.displayName || user.email || 'Fiókom'}</span></button> : <button className="profile-chip account-chip" onClick={() => setAccountOpen(true)} aria-label="Bejelentkezés vagy fiók létrehozása"><span className="avatar">🎮</span><span>Fiók létrehozása</span></button>}
+        </div>
+      </header>
+
+      <main className="main-content">
+        {screen === 'home' && (
+          <>
+            <section className="hero">
+              <div className="hero-copy">
+                <div className="eyebrow"><Sparkles size={14} /> A TE JÁTÉKISMERETED, A TE KIHÍVÁSOD</div>
+                <h1>Mennyire ismered<br />a <span>játékokat?</span></h1>
+                <p>Emojik, nyomok és fejtörők. Kapcsold be a gamer agyad, és találd ki, melyik játékra gondoltunk!</p>
+                <div className="hero-tags"><span>🎮 {games.length}+ játék</span><span>⚡ 4 játékmód</span><span>🏆 Saját rekordok</span></div>
+              </div>
+              <div className="hero-art" aria-hidden="true">
+                <div className="orbit orbit-a" /><div className="orbit orbit-b" />
+                <div className="hero-console">🎮</div>
+                <span className="float-emoji emoji-one">🕹️</span><span className="float-emoji emoji-two">👾</span><span className="float-emoji emoji-three">✨</span>
+                <div className="art-caption">PRESS START <span>▶</span></div>
+              </div>
+            </section>
+
+            {progress && <section className="resume-card">
+              <span className="resume-icon"><RotateCcw size={18} /></span>
+              <span className="resume-copy"><strong>Félbehagytál egy kvízt</strong><small>{modes.find((item) => item.id === progress.mode)?.title ?? 'Kvíz'} · {progress.roundIndex + 1}. kérdés / {progress.rounds.length}</small></span>
+              <button className="resume-button" onClick={resumeGame}>Folytatás <ArrowRight size={15} /></button>
+            </section>}
+
+            <section className="stats-strip" aria-label="Statisztikák">
+              <div className="stat-item"><span className="stat-icon purple"><Trophy size={19} /></span><div><strong>{stats.bestScore}</strong><small>Legjobb pontszám</small></div></div>
+              <div className="stat-item"><span className="stat-icon orange"><Flame size={19} /></span><div><strong>{stats.bestStreak}</strong><small>Legjobb sorozat</small></div></div>
+              <div className="stat-item"><span className="stat-icon green"><Check size={19} /></span><div><strong>{stats.correct}</strong><small>Helyes válasz</small></div></div>
+              <div className="stat-item"><span className="stat-icon blue"><Gamepad2 size={19} /></span><div><strong>{stats.gamesPlayed}</strong><small>Lejátszott kör</small></div></div>
+            </section>
+
+            <section className="mode-section">
+              <div className="section-heading"><div><span className="section-kicker">VÁLASSZ KIHÍVÁST</span><h2>Hogyan játszunk?</h2></div><span className="round-note"><span className="live-dot" /> Egy kör · {Math.min(10, playableGames.length)} kérdés</span></div>
+              <div className="mode-grid">
+                {modes.map((item, index) => (
+                  <button key={item.id} className={`mode-card ${mode === item.id ? 'selected' : ''} mode-${index}`} onClick={() => setMode(item.id)} aria-pressed={mode === item.id}>
+                    <span className="mode-card-top"><span className="mode-icon">{item.icon}</span><span className="mode-check"><Check size={14} /></span></span>
+                    <span className="mode-label">{item.label}</span><strong>{item.title}</strong><span className="mode-detail">{item.detail}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="play-row">
+                <label className="category-select"><span>Kategória</span><select value={category} onChange={(event) => setCategory(event.target.value as 'Mind' | GameCategory)}>{categories.map((item) => <option key={item} value={item}>{item === 'Mind' ? 'Minden játék' : item}</option>)}</select></label>
+                <div className="play-actions"><span className="pool-count">{playableGames.length} játék a pakliban</span><button className="primary-button" onClick={startGame} disabled={playableGames.length === 0}>Játék indítása <ArrowRight size={18} /></button></div>
+              </div>
+            </section>
+            <section className="duel-promo">
+              <div className="duel-promo-icon"><Swords size={22} /></div>
+              <div className="duel-promo-copy"><span>JÁTSSZATOK EGYÜTT</span><strong>Hívd ki a barátod vagy játsszatok együtt!</strong><small>Kétfős párbaj vagy korlátlan létszámú csoportszoba · 10 kérdés</small></div>
+              <button className="duel-promo-button" onClick={() => setScreen('duel')}>Játékszoba <ArrowRight size={17} /></button>
+            </section>
+            <footer className="home-footer"><span>🎯 {accuracy}% pontosság eddig</span><span>Játssz, tanulj, és döntsd meg a rekordod.</span></footer>
+          </>
+        )}
+
+        {screen === 'duel' && <DuelRoom onExit={() => setScreen('home')} />}
+
+        {screen === 'playing' && currentRound && (
+          <section className="game-screen">
+            <div className="game-topline"><button className="back-button" onClick={() => setScreen('home')}><ArrowLeft size={17} /> Kilépés</button><div className="game-mode-pill"><span>{activeMode.icon}</span>{activeMode.title}</div><span className="score-pill"><Trophy size={15} /> {score} pont</span></div>
+            <div className="quiz-panel">
+              <div className="quiz-progress-row"><span>KÉRDÉS <b>{String(roundIndex + 1).padStart(2, '0')}</b> <i>/ {String(roundCount).padStart(2, '0')}</i></span><span className="streak-label"><Flame size={15} /> {streak} sorozat</span></div>
+              <div className="progress-track"><div className="progress-fill" style={{ width: `${((roundIndex + 1) / roundCount) * 100}%` }} /></div>
+              <div className="question-area">
+                <span className="question-kicker">MELYIK JÁTÉKRA GONDOLTUNK?</span>
+                {mode === 'emoji' && <div className="emoji-clue" aria-label="Emoji nyomok">{currentRound.game.emojis}</div>}
+                {mode === 'clues' && <div className="clue-title"><span className="clue-badge">NYOMOK</span><h2>Rakd össze a történetet!</h2></div>}
+                {mode === 'features' && <div className="clue-title"><span className="clue-badge">JÁTÉKJELLEMZŐK</span><h2>Melyik játék illik rájuk?</h2></div>}
+              </div>
+              {mode === 'image' && <div className="image-challenge">
+                <div className="image-frame" aria-label="Elhomályosított játékillusztráció">
+                  {!imageUnavailable && <img src={`https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${steamAppIds[currentRound.game.title]}/header.jpg`} alt="Játékkép" style={{ filter: `blur(${answer === currentRound.game.title ? 0 : Math.max(0, 24 - wrongAnswers.length * 8)}px)` }} onError={() => setImageUnavailable(true)} />}
+                  {imageUnavailable && <div className="image-fallback" style={{ filter: `blur(${answer === currentRound.game.title ? 0 : Math.max(0, 24 - wrongAnswers.length * 8)}px)` }} aria-hidden="true">{currentRound.game.emojis}</div>}
+                  <span className="blur-label">{answer === currentRound.game.title ? 'HELYES TALÁLAT · TELJES KÉP' : wrongAnswers.length === 0 ? 'HOMÁLYOS KÉP' : `${wrongAnswers.length} HIBÁS TIPP · ÉLESEBB KÉP`}</span>
+                </div>
+                <div className="image-hints" aria-live="polite"><span className="image-hints-label"><Lightbulb size={14} /> SEGÍTSÉG · {revealedHints}/3</span>{currentRound.game.clues.slice(0, revealedHints).map((clue, index) => <p key={clue}><b>{index + 1}.</b> {clue}</p>)}</div>
+              </div>}
+              {mode === 'features' && <div className="feature-list">{currentRound.game.features.map((feature) => <span key={feature}><Check size={15} /> {feature}</span>)}</div>}
+              {mode !== 'image' && <div className="hint-list" aria-live="polite">
+                {currentRound.game.clues.slice(0, revealedHints).map((clue, index) => <div className="hint-line" key={clue}><span>{String(index + 1).padStart(2, '0')}</span>{clue}</div>)}
+              </div>}
+              {mode !== 'image' && !answer && <button className="hint-button" onClick={revealHint} disabled={revealedHints >= 3}><Lightbulb size={16} /> {revealedHints >= 3 ? 'Minden nyom felfedve' : 'Mutass még egy nyomot'} <small>{revealedHints < 3 ? '−20 pont' : ''}</small></button>}
+              <div className="answers-grid">
+                {currentRound.choices.map((choice, index) => {
+                  const isCorrect = choice.title === currentRound.game.title;
+                  const isSelected = answer === choice.title;
+                  const wasWrong = wrongAnswers.includes(choice.title);
+                  const resultClass = answer ? (isCorrect ? 'correct' : isSelected ? 'incorrect' : 'muted-answer') : wasWrong ? 'incorrect' : '';
+                  return <button key={choice.title} className={`answer-option ${resultClass}`} onClick={() => chooseAnswer(choice.title)} disabled={answer !== null || wasWrong}><span className="answer-letter">{String.fromCharCode(65 + index)}</span><span>{choice.title}</span>{answer && isCorrect && <Check size={18} className="answer-result-icon" />}{(answer && isSelected && !isCorrect || mode === 'image' && wasWrong) && <X size={18} className="answer-result-icon" />}</button>;
+                })}
+              </div>
+              {mode === 'image' && wrongAnswers.length > 0 && !answer && <div className="feedback-bar feedback-wrong image-feedback"><div><span className="feedback-icon">🔍</span><span><strong>Ez most nem talált!</strong><small>Élesebb lett a kép, és új segítséget kaptál. Próbáld újra!</small></span></div><span className="tries-left">{4 - wrongAnswers.length} tipp maradt</span></div>}
+              {answer && <div className={`feedback-bar ${answer === currentRound.game.title ? 'feedback-correct' : 'feedback-wrong'}`}><div><span className="feedback-icon">{answer === currentRound.game.title ? '🎉' : '💡'}</span><span><strong>{answer === currentRound.game.title ? 'Ez az, eltaláltad!' : 'Majdnem!'}</strong><small>{answer === currentRound.game.title ? `+${Math.max(40, 100 - (revealedHints - 1) * 20)} pont — jöhet a következő?` : `A helyes válasz: ${currentRound.game.title}`}</small></span></div><button onClick={continueGame}>{roundIndex === roundCount - 1 ? 'Eredmény' : 'Következő'} <ArrowRight size={16} /></button></div>}
+              <div className="quiz-foot"><span><Lightbulb size={14} /> {mode === 'image' ? 'Minden hibás tipp élesíti a képet' : 'Kevesebb nyomért több pont jár'}</span><span>{mode === 'image' ? `${wrongAnswers.length} hibás tipp` : `${roundCorrect} / ${roundIndex + (answer ? 1 : 0)} helyes`}</span></div>
+            </div>
+          </section>
+        )}
+
+        {screen === 'complete' && (
+          <section className="complete-screen">
+            <button className="back-button complete-back" onClick={() => setScreen('home')}><ArrowLeft size={17} /> Főoldal</button>
+            <div className="complete-card"><div className="complete-confetti">🏆</div><span className="section-kicker">KÖR TELJESÍTVE</span><h1>Szép játék!</h1><p>{roundCorrect >= 8 ? 'Te aztán ismered a játékokat!' : 'Még egy kör, és meglesz az új rekord!'}</p><div className="result-score"><strong>{score}</strong><span>pont</span></div><div className="result-stats"><div><strong>{roundCorrect}/{roundCount}</strong><span>Helyes válasz</span></div><div><strong>{stats.bestStreak}</strong><span>Legjobb sorozat</span></div><div><strong>{stats.bestScore}</strong><span>Rekordpontszám</span></div></div><div className="complete-actions"><button className="primary-button" onClick={startGame}><RotateCcw size={17} /> Újra játszás</button><button className="secondary-button" onClick={() => setScreen('home')}>Másik mód <ArrowRight size={17} /></button></div></div>
+          </section>
+        )}
+      </main>
+      <div className="site-bottom"><span>GAMEGUESSER <b>GG</b></span><span>Találd ki. Játssz még. 🕹️</span></div>
+      {user && cloudStatus !== 'local' && <span className="account-cloud-indicator"><span className={`cloud-indicator-dot ${cloudStatus}`} />{accountLabel}</span>}
+      <AccountModal user={user} open={accountOpen} onClose={() => setAccountOpen(false)} cloudStatus={cloudStatus} />
+    </div>
+  );
+}
+
+export default App;
