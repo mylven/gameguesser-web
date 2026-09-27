@@ -1,8 +1,9 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { ArrowLeft, ArrowRight, Check, Crown, Flame, Gamepad2, Lightbulb, RotateCcw, Sparkles, Swords, Trophy, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Crown, Flame, Gamepad2, Lightbulb, MessageCircle, RotateCcw, Sparkles, Swords, Trophy, X } from 'lucide-react';
 import { categories, games, loadGameCatalog, refreshGameCatalog, steamAppIds, type Game, type GameCategory } from './games';
 import { localizeGame } from './game-localization';
+import './discord.css';
 import DuelRoom from './DuelRoom';
 import AccountModal from './AccountModal';
 import { auth, firebaseConfigured, hasAdminAccess, hasPendingPremiumRequest, hasPremiumAccess, loadCloudProfile, saveCloudProfile, type CloudProfile, type SavedProgress } from './firebase';
@@ -546,7 +547,7 @@ function App() {
           </section>
         )}
       </main>
-      <div className="site-bottom"><span>GAMEGUESSER</span><span>Találd ki. Játssz még. 🕹️</span></div>
+      <div className="site-bottom"><span>GAMEGUESSER</span><a className="site-discord-link" href="https://discord.gg/8rDPHVJnqz" target="_blank" rel="noopener noreferrer"><MessageCircle size={14} />{language === 'en' ? 'Join our Discord' : 'Csatlakozz a Discord-szerverhez'}</a><span>{language === 'en' ? 'Guess it. Play more. 🕹️' : 'Találd ki. Játssz még. 🕹️'}</span></div>
       {user && cloudStatus !== 'local' && <span className="account-cloud-indicator"><span className={`cloud-indicator-dot ${cloudStatus}`} />{accountLabel}</span>}
       <AccountModal user={user} isAdmin={isAdmin} open={accountOpen} onClose={() => setAccountOpen(false)} onOpenAdmin={() => { setAccountOpen(false); setScreen('admin'); }} cloudStatus={cloudStatus} />
     </div>
