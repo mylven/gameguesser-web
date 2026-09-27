@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, BadgeCheck, Check, Clock3, Cloud, Crown, Eye, Gamepad2, LoaderCircle, RefreshCw, Search, Shield, ShieldOff, Swords, Trash2, UsersRound, X } from 'lucide-react';
 import { deletePlayerProfile, grantPremiumAccess, listAdminProfiles, listLiveGames, listPremiumRequests, revokePremiumAccess, setAdminAccess, type AdminProfile, type LiveGame, type PremiumRequest } from './firebase-store';
+import { AutoTranslate, useI18n } from './i18n';
 
 type Props = { currentUid: string; onExit: () => void };
 
 function AdminPanel({ currentUid, onExit }: Props) {
+  const { language } = useI18n();
   const [profiles, setProfiles] = useState<AdminProfile[]>([]);
   const [adminUids, setAdminUids] = useState<string[]>([]);
   const [search, setSearch] = useState('');
@@ -158,6 +160,7 @@ function AdminPanel({ currentUid, onExit }: Props) {
   }
 
   return (
+    <AutoTranslate>
     <section className="admin-page">
       <div className="admin-topbar">
         <button className="back-button" onClick={onExit}><ArrowLeft size={17} /> Vissza a játékhoz</button>
@@ -176,7 +179,7 @@ function AdminPanel({ currentUid, onExit }: Props) {
       </div>
       <section className="admin-premium-card">
         <div className="admin-users-head"><div><span className="section-kicker">BUY ME A COFFEE · 1 500 FT / HÓ</span><h2><Crown size={19} /> Premium-igénylések <small>{premiumRequests.length}</small></h2><p>A vásárlás ellenőrzése és aktiválása jelenleg kézi. Csak az ellenőrzött tagságokat hagyd jóvá.</p></div><button className="admin-refresh" onClick={() => void refresh()} disabled={loading}><RefreshCw size={15} className={loading ? 'admin-spinning' : ''} /> Frissítés</button></div>
-        {premiumRequests.length === 0 ? <div className="admin-empty">Nincs függő Premium-igénylés.</div> : <div className="admin-premium-requests">{premiumRequests.map((request) => <article className="admin-premium-request" key={request.uid}><span className="admin-premium-avatar"><Crown size={17} /></span><span className="admin-premium-request-copy"><strong>{request.displayName}</strong><small>{request.email}</small><small>{request.requestedAt?.toLocaleString('hu-HU') ?? 'Most kérte'}</small></span><button className="admin-approve-premium" onClick={() => void approvePremium(request)} disabled={busyUid === request.uid}>{busyUid === request.uid ? <LoaderCircle size={15} className="admin-spinning" /> : <BadgeCheck size={15} />} Jóváhagyás</button></article>)}</div>}
+        {premiumRequests.length === 0 ? <div className="admin-empty">Nincs függő Premium-igénylés.</div> : <div className="admin-premium-requests">{premiumRequests.map((request) => <article className="admin-premium-request" key={request.uid}><span className="admin-premium-avatar"><Crown size={17} /></span><span className="admin-premium-request-copy"><strong>{request.displayName}</strong><small>{request.email}</small><small>{request.requestedAt?.toLocaleString(language === 'en' ? 'en-US' : 'hu-HU') ?? (language === 'en' ? 'Just requested' : 'Most kérte')}</small></span><button className="admin-approve-premium" onClick={() => void approvePremium(request)} disabled={busyUid === request.uid}>{busyUid === request.uid ? <LoaderCircle size={15} className="admin-spinning" /> : <BadgeCheck size={15} />} Jóváhagyás</button></article>)}</div>}
       </section>
       <section className="admin-live-card">
         <div className="admin-users-head">
@@ -186,7 +189,7 @@ function AdminPanel({ currentUid, onExit }: Props) {
         {liveError && <div className="admin-feedback admin-error" role="alert"><X size={15} />{liveError}</div>}
         {liveLoading ? <div className="admin-loading"><LoaderCircle size={20} /> Élő játékok betöltése…</div> : activeGames.length === 0 ? <div className="admin-empty">Jelenleg nem látszik aktív, bejelentkezett játékos által indított meccs.</div> : <div className="admin-live-grid">
           {activeGames.map((game) => <article className="admin-live-game" key={game.id}>
-            <div className="admin-live-game-head"><span className={`admin-live-kind ${game.kind}`}><i />{game.kind === 'multiplayer' ? <><Swords size={13} /> {game.roomType === 'group' ? 'Csoportszoba' : 'Párbaj'}</> : <><Gamepad2 size={13} /> Egyéni játék</>}</span><span className="admin-live-time"><Clock3 size={12} /> {game.updatedAt?.toLocaleTimeString('hu-HU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span></div>
+            <div className="admin-live-game-head"><span className={`admin-live-kind ${game.kind}`}><i />{game.kind === 'multiplayer' ? <><Swords size={13} /> {game.roomType === 'group' ? 'Csoportszoba' : 'Párbaj'}</> : <><Gamepad2 size={13} /> Egyéni játék</>}</span><span className="admin-live-time"><Clock3 size={12} /> {game.updatedAt?.toLocaleTimeString(language === 'en' ? 'en-US' : 'hu-HU', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span></div>
             <div className="admin-live-main"><div><small>JÁTÉKOS / HÁZIGAZDA</small><strong>{game.playerName}</strong></div><div><small>JÁTÉKMÓD · KÖR</small><strong>{game.mode} · {game.roundIndex + 1}/{game.totalRounds}</strong></div></div>
             <div className="admin-live-solution"><span><Eye size={14} /> AKTUÁLIS MEGOLDÁS</span><strong>{game.solution || '—'}</strong></div>
             {game.kind === 'multiplayer' && <div className="admin-live-details"><span>{game.roomCode ? `Szobakód: ${game.roomCode}` : 'Szoba'}</span><span>{game.players?.join(' · ') || 'Játékosok betöltése…'}</span>{game.scores && Object.keys(game.scores).length > 0 && <span className="admin-live-scores">{Object.entries(game.scores).map(([name, score]) => `${name}: ${score} pont`).join(' · ')}</span>}</div>}
@@ -222,6 +225,7 @@ function AdminPanel({ currentUid, onExit }: Props) {
       </section>
       <div className="admin-notice-box"><Shield size={16} /><span>Az admin ellenőrzés Firebase Auth UID-hoz kötött Firestore-jogosultságon alapul. Az admin hozzáférést a Firestore <strong>admins/{'{uid}'}</strong> dokumentumában lehet visszavonni.</span></div>
     </section>
+    </AutoTranslate>
   );
 }
 

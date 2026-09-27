@@ -1,4 +1,5 @@
 import { ArrowLeft, ArrowRight, BadgeCheck, Check, Crown, ExternalLink, LoaderCircle, LockKeyhole, Sparkles, X } from 'lucide-react';
+import { AutoTranslate } from './i18n';
 
 type Props = {
   isSignedIn: boolean;
@@ -21,6 +22,7 @@ const perks = [
 
 function PremiumPanel({ isSignedIn, isPremium, requestPending, requestBusy, requestMessage, onRequestReview, onSignIn, onExit }: Props) {
   return (
+    <AutoTranslate>
     <section className="premium-page">
       <div className="premium-topbar">
         <button className="back-button" onClick={onExit}><ArrowLeft size={17} /> Vissza a játékhoz</button>
@@ -49,6 +51,7 @@ function PremiumPanel({ isSignedIn, isPremium, requestPending, requestBusy, requ
       {isPremium && <div className="premium-thanks"><Crown size={17} /> Köszönjük, hogy támogatod a GameGuessert!</div>}
       <footer className="premium-footer">Az előfizetés és lemondás a Buy Me a Coffee fiókodban kezelhető. A tagság ellenőrzése itt egyelőre kézi jóváhagyással történik.</footer>
     </section>
+    </AutoTranslate>
   );
 }
 

@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { createUserWithEmailAndPassword, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, updateProfile } from 'firebase/auth';
 import { ArrowRight, Cloud, KeyRound, LoaderCircle, Mail, Shield, UserPlus, X } from 'lucide-react';
 import { auth, firebaseConfigured, prepareAuth } from './firebase';
+import { AutoTranslate } from './i18n';
 import type { User } from 'firebase/auth';
 
 type Props = { user: User | null; isAdmin: boolean; open: boolean; onClose: () => void; onOpenAdmin: () => void; cloudStatus: 'local' | 'loading' | 'saving' | 'saved' | 'offline' };
@@ -98,6 +99,7 @@ function AccountModal({ user, isAdmin, open, onClose, onOpenAdmin, cloudStatus }
   }
 
   return (
+    <AutoTranslate>
     <div className="account-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section className="account-modal" role="dialog" aria-modal="true" aria-labelledby="account-title">
         <button className="account-close" onClick={onClose} aria-label="Bezárás"><X size={18} /></button>
@@ -130,6 +132,7 @@ function AccountModal({ user, isAdmin, open, onClose, onOpenAdmin, cloudStatus }
         </>}
       </section>
     </div>
+    </AutoTranslate>
   );
 }
 

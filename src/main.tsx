@@ -11,9 +11,10 @@ import './account-status.css';
 import './admin.css';
 import './leaderboard.css';
 import './premium.css';
+import { I18nProvider } from './i18n';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App />
+    <I18nProvider><App /></I18nProvider>
   </React.StrictMode>,
 );

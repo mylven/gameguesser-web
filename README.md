@@ -2,6 +2,8 @@
 
 Magyar nyelvű, böngészőben játszható videojáték-kvíz. Négy játékmódban találhatod ki a játékokat: emojikból, fokozatosan feloldott nyomokból, műfaji és játékmeneti jellemzőkből, vagy elmosódott képekből. A képfelismerő módban minden rossz tipp élesíti a képet és új segítséget fed fel; a helyes válasz után a teljes kép élesen látszik. Vendégként az adatok a böngészőben mentődnek; fiókkal a pontszámok és félbehagyott körök a felhőbe szinkronizálódnak.
 
+Az oldal magyar és angol nyelven használható. A felső sáv **HU / EN** kapcsolója azonnal vált nyelvet, és a választás az adott böngészőben megmarad; a játékfeladatok és a multiplayer szoba felülete is követi a kiválasztott nyelvet.
+
 A kvíz a beépített, részletesen szerkesztett címek mellett akár 6000 Steam-játékból álló SteamSpy-katalógust is használ. A GitHub Actions 30 percenként ellenőrzi az új Steam-játékokat, és változás esetén automatikusan frissíti a katalógust, majd újratelepíti a weboldalt. A már megnyitott oldal is 30 percenként lekéri az új listát; az új címek a következő kérdéssorokba kerülnek be. Minden új címhez automatikusan létrejönnek a fejlesztőre és a játékcím betű-/szószámára épülő feladatok. A lista frissítéséhez kézzel az `npm run catalog:refresh` parancs is futtatható.
 
 A **Ranglista** az első 100, bejelentkezett játékos összesített pontszáma alapján készül, és 30 másodpercenként frissül. A ranglista csak a megjelenített játékosnevet, az összpontszámot és a befejezett kvízek számát teszi nyilvánosan olvashatóvá; e-mail-címet nem. A vendégként, helyi böngészőben szerzett pontok nem kerülnek fel.

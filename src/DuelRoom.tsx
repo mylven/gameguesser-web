@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, Check, Clipboard, Clock3, Crown, Image as ImageIcon, Lightbulb, LoaderCircle, Swords, Trophy, UsersRound, Wifi, X } from 'lucide-react';
 import { Peer, type DataConnection } from 'peerjs';
 import { games, steamAppIds, type Game } from './games';
+import { localizeGame } from './game-localization';
+import { AutoTranslate, useI18n } from './i18n';
 
 type Round = { game: Game; choices: Game[] };
 type Player = string;
@@ -93,8 +95,9 @@ function makePeerOptions() {
 }
 
 function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props) {
+  const { language } = useI18n();
   const [stage, setStage] = useState<'setup' | 'room' | 'playing'>('setup');
-  const [playerName, setPlayerName] = useState('Játékos');
+  const [playerName, setPlayerName] = useState(language === 'en' ? 'Player' : 'Játékos');
   const [codeInput, setCodeInput] = useState('');
   const [roomCode, setRoomCode] = useState('');
   const [roomType, setRoomType] = useState<RoomType>('duel');
@@ -118,6 +121,10 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
   const roomStartedRef = useRef(false);
   const snapshotRef = useRef<DuelSnapshot | null>(null);
   const liveSessionIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    setPlayerName((current) => current === 'Játékos' || current === 'Player' ? language === 'en' ? 'Player' : 'Játékos' : current);
+  }, [language]);
 
   useEffect(() => () => {
     connectionRef.current?.close();
@@ -393,7 +400,8 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
     }
   }
 
-  const currentRound = snapshot?.rounds[snapshot.roundIndex];
+  const storedRound = snapshot?.rounds[snapshot.roundIndex];
+  const currentRound = storedRound ? { ...storedRound, game: localizeGame(storedRound.game, language) } : undefined;
   const roundComplete = !!snapshot && snapshot.players.every((player) => snapshot.answers[player.id] !== null);
   const myAnswer = role && snapshot ? snapshot.answers[role] : null;
   const sortedPlayers = snapshot ? [...snapshot.players].sort((left, right) => (snapshot.scores[right.id] ?? 0) - (snapshot.scores[left.id] ?? 0)) : [];
@@ -438,6 +446,7 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
   }, [role, stage, snapshot?.roundIndex, snapshot?.finished, ownerUid, roomCode]);
 
   return (
+    <AutoTranslate>
     <section className="duel-page">
       <div className="duel-topbar">
         <button className="back-button" onClick={onExit}><ArrowLeft size={17} /> Vissza a főoldalra</button>
@@ -575,6 +584,7 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
       {error && <div className="duel-error" role="alert"><X size={16} />{error}<button onClick={() => setError('')} aria-label="Hiba bezárása"><X size={14} /></button></div>}
       <footer className="duel-footer"><span>🔒 A válaszaitok közvetlenül egymás között utaznak.</span><span>Ingyenes, böngészőből böngészőbe kapcsolat</span></footer>
     </section>
+    </AutoTranslate>
   );
 }
 
