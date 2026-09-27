@@ -2,6 +2,8 @@
 
 Magyar nyelvű, böngészőben játszható videojáték-kvíz. Négy játékmódban találhatod ki a játékokat: emojikból, fokozatosan feloldott nyomokból, műfaji és játékmeneti jellemzőkből, vagy elmosódott képekből. A képfelismerő módban minden rossz tipp élesíti a képet és új segítséget fed fel; a helyes válasz után a teljes kép élesen látszik. Vendégként az adatok a böngészőben mentődnek; fiókkal a pontszámok és félbehagyott körök a felhőbe szinkronizálódnak.
 
+A kvíz a beépített, részletesen szerkesztett címek mellett több mint 2500 Steam-játékból álló katalógust is használ, így összesen körülbelül 2600 játék kerül a sorsolásba. A katalógus SteamSpy-adatokból készült, verziókezelt adatfájl; a build és a játék futtatása nem igényel SteamSpy-kapcsolatot. Frissítéshez futtasd az `npm run catalog:refresh` parancsot. A katalógusból készült plusz nyomok a fejlesztő nevét és a játékcím betű-/szószámát használják.
+
 A házigazda két szobatípus közül választhat: **Párbaj** (legfeljebb 2 játékos) vagy **Csoportszoba** (korlátlan számú csatlakozó). Mindkettőben az emoji-, nyom-, jellemző- és képfelismerő mód közül lehet választani, valamint kérdésenkénti 15, 30 vagy 45 másodperces időlimit állítható be. Időre játszva a gyorsabb helyes válasz több pontot ér; képfelismerő módban a kép a visszaszámlálás során kiélesedik. A szobakódot megosztva a játékosok csatlakoznak; a 10 kérdéses meccs válaszai és pontjai PeerJS/WebRTC kapcsolaton szinkronizálódnak, az eredmény a teljes társaság rangsorát mutatja. A játékhoz internetkapcsolat szükséges.
 
 ## Fiók és mentés más eszközre

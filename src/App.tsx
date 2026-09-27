@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { ArrowLeft, ArrowRight, Check, Flame, Gamepad2, Lightbulb, RotateCcw, Sparkles, Swords, Trophy, X } from 'lucide-react';
-import { categories, games, steamAppIds, type Game, type GameCategory } from './games';
+import { categories, games, loadGameCatalog, steamAppIds, type Game, type GameCategory } from './games';
 import DuelRoom from './DuelRoom';
 import AccountModal from './AccountModal';
 import { auth, firebaseConfigured, hasAdminAccess, loadCloudProfile, saveCloudProfile, type CloudProfile, type SavedProgress } from './firebase';
@@ -93,6 +93,8 @@ function createRounds(pool: Game[]): Round[] {
 function App() {
   const [screen, setScreen] = useState<Screen>('home');
   const [mode, setMode] = useState<ModeId>('emoji');
+  const [catalogSize, setCatalogSize] = useState(games.length);
+  const [catalogReady, setCatalogReady] = useState(false);
   const [category, setCategory] = useState<'Mind' | GameCategory>('Mind');
   const [rounds, setRounds] = useState<Round[]>([]);
   const [roundIndex, setRoundIndex] = useState(0);
@@ -116,6 +118,16 @@ function App() {
   const [cloudStatus, setCloudStatus] = useState<'local' | 'loading' | 'saving' | 'saved' | 'offline'>('local');
   const [accountOpen, setAccountOpen] = useState(false);
   const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void loadGameCatalog().then((size) => {
+      if (!active) return;
+      setCatalogSize(size);
+      setCatalogReady(true);
+    });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     if (!auth) return;
@@ -209,7 +221,7 @@ function App() {
 
   const availableGames = useMemo(
     () => category === 'Mind' ? games : games.filter((game) => game.category === category),
-    [category],
+    [category, catalogSize],
   );
   const playableGames = mode === 'image'
     ? availableGames.filter((game) => steamAppIds[game.title] !== undefined)
@@ -382,13 +394,13 @@ function App() {
               </div>
               <div className="play-row">
                 <label className="category-select"><span>Kategória</span><select value={category} onChange={(event) => setCategory(event.target.value as 'Mind' | GameCategory)}>{categories.map((item) => <option key={item} value={item}>{item === 'Mind' ? 'Minden játék' : item}</option>)}</select></label>
-                <div className="play-actions"><span className="pool-count">{playableGames.length} játék a pakliban</span><button className="primary-button" onClick={startGame} disabled={playableGames.length === 0}>Játék indítása <ArrowRight size={18} /></button></div>
+                <div className="play-actions"><span className="pool-count">{catalogReady ? `${playableGames.length} játék a pakliban` : 'Játéklista betöltése…'}</span><button className="primary-button" onClick={startGame} disabled={!catalogReady || playableGames.length === 0}>{catalogReady ? 'Játék indítása' : 'Betöltés…'} <ArrowRight size={18} /></button></div>
               </div>
             </section>
             <section className="duel-promo">
               <div className="duel-promo-icon"><Swords size={22} /></div>
               <div className="duel-promo-copy"><span>JÁTSSZATOK EGYÜTT</span><strong>Hívd ki a barátod vagy játsszatok együtt!</strong><small>Kétfős párbaj vagy korlátlan létszámú csoportszoba · 10 kérdés</small></div>
-              <button className="duel-promo-button" onClick={() => setScreen('duel')}>Játékszoba <ArrowRight size={17} /></button>
+              <button className="duel-promo-button" onClick={() => setScreen('duel')} disabled={!catalogReady}>Játékszoba <ArrowRight size={17} /></button>
             </section>
             <footer className="home-footer"><span>🎯 {accuracy}% pontosság eddig</span><span>Játssz, tanulj, és döntsd meg a rekordod.</span></footer>
           </>

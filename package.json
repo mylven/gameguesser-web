@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "catalog:refresh": "node scripts/update-games.mjs",
+    "catalog:check": "node scripts/update-games.mjs --check",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },

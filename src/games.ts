@@ -1,4 +1,4 @@
-export type GameCategory = 'Akció' | 'Kaland' | 'RPG' | 'Indie' | 'Stratégia' | 'Szimulátor' | 'Sport';
+export type GameCategory = 'Akció' | 'Kaland' | 'RPG' | 'Indie' | 'Stratégia' | 'Szimulátor' | 'Sport' | 'Egyéb';
 
 export interface Game {
   title: string;
@@ -8,7 +8,7 @@ export interface Game {
   features: [string, string, string];
 }
 
-export const games: Game[] = [
+const curatedGames: Game[] = [
   { title: 'Minecraft', category: 'Szimulátor', emojis: '⛏️ 🧱 🌳 🐷', clues: ['Kockákból épül fel a világ.', 'Éjjel veszélyes szörnyek jelennek meg.', 'A játékban gyémántot bányászhatsz és portált építhetsz.'], features: ['Kreatív építés', 'Végtelennek tűnő világ', 'Kockás grafika'] },
   { title: 'The Legend of Zelda: Breath of the Wild', category: 'Kaland', emojis: '🗡️ 🛡️ 🏹 🌄', clues: ['Egy hatalmas, szabadon bejárható királyság vár.', 'A főhős hosszú álom után ébred fel.', 'Hyrule-ban tornyokat mászol meg és szentélyeket fedezel fel.'], features: ['Nyitott világ', 'Felfedezés és rejtvények', 'Hyrule'] },
   { title: 'The Legend of Zelda: Tears of the Kingdom', category: 'Kaland', emojis: '☁️ 🪝 🏹 ⚙️', clues: ['A kaland Hyrule egén és mélyén is folytatódik.', 'Különleges képességekkel tárgyakat kapcsolhatsz össze.', 'Link kézzel készített járművekkel járhatja be a világot.'], features: ['Égi szigetek', 'Kreatív barkácsolás', 'Hyrule'] },
@@ -64,7 +64,7 @@ export const games: Game[] = [
   { title: 'No Man’s Sky', category: 'Szimulátor', emojis: '🚀 🪐 👽 🌌', clues: ['Szinte végtelen számú bolygót fedezhetsz fel.', 'Idegen fajokkal találkozhatsz és űrhajót vezethetsz.', 'A procedurálisan generált galaxis a játék középpontja.'], features: ['Űrbéli felfedezés', 'Bolygók milliói', 'Túlélés és építés'] },
 ];
 
-export const steamAppIds: Record<string, number> = {
+const curatedSteamAppIds: Record<string, number> = {
   'Stardew Valley': 413150,
   'Among Us': 945360,
   'Portal 2': 620,
@@ -108,6 +108,77 @@ export const steamAppIds: Record<string, number> = {
   'No Man’s Sky': 275850,
 };
 
+export const games: Game[] = [...curatedGames];
+export const steamAppIds: Record<string, number> = { ...curatedSteamAppIds };
+
+type SteamGameRecord = { appId: number; title: string; developer: string };
+
+function canonicalTitle(title: string): string {
+  return title.toLocaleLowerCase('en-US').normalize('NFKC')
+    .replace(/\b(?:legacy|enhanced|complete|definitive|remastered|remaster|goty|game of the year|director's cut|deluxe|ultimate) edition\b/gi, '')
+    .replace(/[^\p{L}\p{N}]+/gu, '');
+}
+
+function inferCategory(title: string): GameCategory {
+  const name = title.toLowerCase();
+  if (/\b(fifa|nba|madden|wwe|football|f1|wrc|rally|racing|motorsport|golf|tennis|forza|assetto|need for speed|dirt)\b/.test(name)) return 'Sport';
+  if (/\b(simulator|simulation|simulator|farming|truck|train sim|flight sim|house flipper|tycoon|factory|city builder|powerwash|construction simulator)\b/.test(name)) return 'Szimulátor';
+  if (/\b(rpg|final fantasy|dragon quest|dragon age|baldur|elder scrolls|mass effect|witcher|pathfinder|persona|dark souls|elden ring|monster hunter|diablo)\b/.test(name)) return 'RPG';
+  if (/\b(strategy|total war|civilization|age of empires|xcom|command & conquer|stellaris|europe universalis|hearts of iron|anno|tower defense|warhammer|crusader kings)\b/.test(name)) return 'Stratégia';
+  if (/\b(adventure|tomb raider|walking dead|life is strange|tell(tale)?|story|quest|platformer|puzzle|point.and.click|ori and|unravel|firewatch)\b/.test(name)) return 'Kaland';
+  if (/\b(shooter|fps|battlefield|call of duty|counter.strike|doom|resident evil|assassin's creed|far cry|borderlands|warfare|sniper|combat)\b/.test(name)) return 'Akció';
+  if (/\b(indie|roguelike|roguelite|metroidvania|pixel|visual novel)\b/.test(name)) return 'Indie';
+  return 'Egyéb';
+}
+
+const categoryEmojis: Record<GameCategory, string> = {
+  'Akció': '🎮 ⚔️ 💥',
+  'Kaland': '🧭 🗺️ ✨',
+  RPG: '🧙 🐉 🗡️',
+  Indie: '🕹️ 🎨 ✨',
+  Stratégia: '🏰 🧠 ⚔️',
+  Szimulátor: '🛠️ 🌍 🎮',
+  Sport: '🏆 🏁 🎮',
+  'Egyéb': '🎮 🧩 ✨',
+};
+
+let catalogLoadPromise: Promise<number> | null = null;
+
+export function loadGameCatalog(): Promise<number> {
+  if (!catalogLoadPromise) {
+    catalogLoadPromise = import('./generated-games.json')
+      .then(({ default: rawRecords }) => {
+        const seenTitles = new Set(curatedGames.map((game) => canonicalTitle(game.title)));
+        const extraGameRecords = (rawRecords as SteamGameRecord[]).filter((game) => {
+          const key = canonicalTitle(game.title);
+          if (!key || seenTitles.has(key)) return false;
+          seenTitles.add(key);
+          return true;
+        });
+        const expandedGames: Game[] = extraGameRecords.map(({ title, developer }) => {
+          const category = inferCategory(title);
+          const words = title.trim().split(/\s+/).filter(Boolean);
+          const letters = [...title].filter((character) => /[\p{L}\p{N}]/u.test(character));
+          const firstCharacter = letters[0]?.toLocaleUpperCase('hu-HU') ?? '?';
+          const lastCharacter = letters[letters.length - 1]?.toLocaleUpperCase('hu-HU') ?? '?';
+          const studio = developer.replace(/[.,;:!?]+$/, '').trim() || 'ismeretlen fejlesztő';
+          const clues: [string, string, string] = [
+            `A fejlesztője: ${studio}.`,
+            `A címe ${words.length} szóból és ${letters.length} betűből áll.`,
+            `A címe „${firstCharacter}” betűvel kezdődik, és „${lastCharacter}” betűre végződik.`,
+          ];
+          const features: [string, string, string] = [category, `${words.length} szavas cím`, `Fejlesztő: ${studio}`];
+          return { title, category, emojis: categoryEmojis[category], clues, features };
+        });
+        games.push(...expandedGames);
+        Object.assign(steamAppIds, Object.fromEntries(extraGameRecords.map((game) => [game.title, game.appId])));
+        return games.length;
+      })
+      .catch(() => games.length);
+  }
+  return catalogLoadPromise;
+}
+
 export const categories: Array<'Mind' | GameCategory> = [
-  'Mind', 'Akció', 'Kaland', 'RPG', 'Indie', 'Stratégia', 'Szimulátor', 'Sport',
+  'Mind', 'Akció', 'Kaland', 'RPG', 'Indie', 'Stratégia', 'Szimulátor', 'Sport', 'Egyéb',
 ];
