@@ -4,6 +4,8 @@ Magyar nyelvű, böngészőben játszható videojáték-kvíz. Négy játékmód
 
 Az oldal magyar és angol nyelven használható. A felső sáv **HU / EN** kapcsolója azonnal vált nyelvet, és a választás az adott böngészőben megmarad; a játékfeladatok és a multiplayer szoba felülete is követi a kiválasztott nyelvet.
 
+Az admin dashboard **Weboldal-látogatottság** kártyája összes oldalmegnyitást, becsült egyedi böngészőszámot és utolsó aktivitást mutat. A számláló véletlenszerű, helyben tárolt böngészőazonosítót használ; nevet, e-mail-címet vagy IP-címet nem tárol. Egy ember több eszközön több böngészőnek számíthat, a privát mód és a törölt böngészőadat pedig új egyedi látogatónak látszhat. Új Firebase-projektnél a frissített `firestore.rules` szabályokat közzé kell tenni a Firebase Console **Firestore Database → Rules** részében.
+
 A kvíz a beépített, részletesen szerkesztett címek mellett akár 6000 Steam-játékból álló SteamSpy-katalógust is használ. A GitHub Actions 30 percenként ellenőrzi az új Steam-játékokat, és változás esetén automatikusan frissíti a katalógust, majd újratelepíti a weboldalt. A már megnyitott oldal is 30 percenként lekéri az új listát; az új címek a következő kérdéssorokba kerülnek be. Minden új címhez automatikusan létrejönnek a fejlesztőre és a játékcím betű-/szószámára épülő feladatok. A lista frissítéséhez kézzel az `npm run catalog:refresh` parancs is futtatható.
 
 A **Ranglista** az első 100, bejelentkezett játékos összesített pontszáma alapján készül, és 30 másodpercenként frissül. A ranglista csak a megjelenített játékosnevet, az összpontszámot és a befejezett kvízek számát teszi nyilvánosan olvashatóvá; e-mail-címet nem. A vendégként, helyi böngészőben szerzett pontok nem kerülnek fel.

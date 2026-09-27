@@ -1,4 +1,4 @@
-import { collection, deleteDoc, doc, getDoc, getDocs, getFirestore, limit, orderBy, query, serverTimestamp, setDoc } from 'firebase/firestore/lite';
+import { collection, deleteDoc, doc, getDoc, getDocs, getFirestore, increment, limit, orderBy, query, serverTimestamp, setDoc } from 'firebase/firestore/lite';
 import { auth, firebaseConfigured, type CloudProfile } from './firebase';
 import type { User } from 'firebase/auth';
 import { defaultAvatar, isAvatar } from './avatars';
@@ -239,4 +239,51 @@ export async function listLiveGames(): Promise<LiveGame[]> {
       updatedAt: timestamp && typeof timestamp.toDate === 'function' ? timestamp.toDate() as Date : null,
     };
   }).sort((left, right) => (right.updatedAt?.getTime() ?? 0) - (left.updatedAt?.getTime() ?? 0));
+}
+
+export type SiteVisitStats = {
+  uniqueBrowsers: number;
+  pageOpens: number;
+  lastOpenedAt: Date | null;
+};
+
+function createVisitorId(): string {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID().replace(/-/g, '').toLowerCase();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+/** Record one page load per browser tab session, with a persistent pseudonymous browser ID. */
+export async function recordSitePageOpen(): Promise<void> {
+  if (!firebaseConfigured || !auth || typeof window === 'undefined') return;
+  const sessionKey = 'gameguesser-page-open-recorded';
+  if (sessionStorage.getItem(sessionKey)) return;
+
+  let visitorId = localStorage.getItem('gameguesser-visitor-id');
+  if (!visitorId || !/^[a-f0-9]{32}$/.test(visitorId)) {
+    visitorId = createVisitorId();
+    localStorage.setItem('gameguesser-visitor-id', visitorId);
+  }
+
+  // Set this before the async request so React StrictMode cannot count one load twice.
+  sessionStorage.setItem(sessionKey, '1');
+  await setDoc(doc(getFirestore(auth.app), 'siteVisitors', visitorId), {
+    visitCount: increment(1),
+    lastSeenAt: serverTimestamp(),
+  }, { merge: true });
+}
+
+export async function getSiteVisitStats(): Promise<SiteVisitStats> {
+  if (!firebaseConfigured || !auth) throw new Error('A látogatottsági statisztika nincs beállítva.');
+  const snapshots = await getDocs(collection(getFirestore(auth.app), 'siteVisitors'));
+  let pageOpens = 0;
+  let lastOpenedAt: Date | null = null;
+  snapshots.docs.forEach((snapshot) => {
+    const data = snapshot.data();
+    pageOpens += Math.max(0, Number(data.visitCount) || 0);
+    const timestamp = data.lastSeenAt;
+    const date = timestamp && typeof timestamp.toDate === 'function' ? timestamp.toDate() as Date : null;
+    if (date && (!lastOpenedAt || date.getTime() > lastOpenedAt.getTime())) lastOpenedAt = date;
+  });
+  return { uniqueBrowsers: snapshots.size, pageOpens, lastOpenedAt };
 }

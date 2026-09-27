@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, BadgeCheck, Check, Clock3, Cloud, Crown, Eye, Gamepad2, LoaderCircle, RefreshCw, Search, Shield, ShieldOff, Swords, Trash2, UsersRound, X } from 'lucide-react';
-import { deletePlayerProfile, grantPremiumAccess, listAdminProfiles, listLiveGames, listPremiumRequests, revokePremiumAccess, setAdminAccess, type AdminProfile, type LiveGame, type PremiumRequest } from './firebase-store';
+import { ArrowLeft, BadgeCheck, Check, Clock3, Cloud, Crown, Eye, Gamepad2, Globe2, LoaderCircle, RefreshCw, Search, Shield, ShieldOff, Swords, Trash2, UsersRound, X } from 'lucide-react';
+import { deletePlayerProfile, getSiteVisitStats, grantPremiumAccess, listAdminProfiles, listLiveGames, listPremiumRequests, revokePremiumAccess, setAdminAccess, type AdminProfile, type LiveGame, type PremiumRequest, type SiteVisitStats } from './firebase-store';
 import { AutoTranslate, useI18n } from './i18n';
 
 type Props = { currentUid: string; onExit: () => void };
@@ -17,6 +17,9 @@ function AdminPanel({ currentUid, onExit }: Props) {
   const [liveGames, setLiveGames] = useState<LiveGame[]>([]);
   const [liveLoading, setLiveLoading] = useState(true);
   const [liveError, setLiveError] = useState('');
+  const [siteVisits, setSiteVisits] = useState<SiteVisitStats | null>(null);
+  const [siteVisitsLoading, setSiteVisitsLoading] = useState(true);
+  const [siteVisitsError, setSiteVisitsError] = useState('');
   const [premiumRequests, setPremiumRequests] = useState<PremiumRequest[]>([]);
   const [premiumUids, setPremiumUids] = useState<string[]>([]);
 
@@ -48,12 +51,25 @@ function AdminPanel({ currentUid, onExit }: Props) {
     }
   }, []);
 
+  const refreshSiteVisits = useCallback(async () => {
+    setSiteVisitsLoading(true);
+    setSiteVisitsError('');
+    try {
+      setSiteVisits(await getSiteVisitStats());
+    } catch {
+      setSiteVisitsError('Nem sikerült lekérni a látogatókat. Ellenőrizd a siteVisitors Firestore-szabályt.');
+    } finally {
+      setSiteVisitsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     void refresh();
     void refreshLiveGames();
+    void refreshSiteVisits();
     const timer = window.setInterval(() => void refreshLiveGames(false), 5_000);
     return () => window.clearInterval(timer);
-  }, [refresh, refreshLiveGames]);
+  }, [refresh, refreshLiveGames, refreshSiteVisits]);
 
   const filteredProfiles = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -177,6 +193,19 @@ function AdminPanel({ currentUid, onExit }: Props) {
         <article><span><Check size={18} /></span><strong>{totals.games}</strong><small>Lejátszott kör</small></article>
         <article><span><Cloud size={18} /></span><strong>{totals.inProgress}</strong><small>Félbehagyott mentés</small></article>
       </div>
+      <section className="admin-analytics-card">
+        <div className="admin-users-head">
+          <div><span className="section-kicker">OLDALSTATISZTIKA</span><h2><Globe2 size={19} /> Weboldal-látogatottság</h2><p>Névtelen becslés; név, e-mail-cím és IP-cím nem kerül tárolásra.</p></div>
+          <button className="admin-refresh" onClick={() => void refreshSiteVisits()} disabled={siteVisitsLoading}><RefreshCw size={15} className={siteVisitsLoading ? 'admin-spinning' : ''} /> Frissítés</button>
+        </div>
+        {siteVisitsError && <div className="admin-feedback admin-error" role="alert"><X size={15} />{siteVisitsError}</div>}
+        <div className="admin-analytics-stats">
+          <article><span><UsersRound size={16} /></span><strong>{siteVisitsLoading ? '—' : siteVisits?.uniqueBrowsers ?? 0}</strong><small>Becsült egyedi böngésző</small></article>
+          <article><span><Eye size={16} /></span><strong>{siteVisitsLoading ? '—' : siteVisits?.pageOpens ?? 0}</strong><small>Összes oldalmegnyitás</small></article>
+          <article><span><Clock3 size={16} /></span><strong>{siteVisits?.lastOpenedAt?.toLocaleString(language === 'en' ? 'en-US' : 'hu-HU', { dateStyle: 'short', timeStyle: 'short' }) ?? '—'}</strong><small>Utolsó megnyitás</small></article>
+        </div>
+        <div className="admin-live-note">Az egyedi látogató böngészőnként értendő: több eszközön ugyanaz a személy többször számíthat, a privát mód vagy a törölt böngészőadat pedig új látogatónak számít.</div>
+      </section>
       <section className="admin-premium-card">
         <div className="admin-users-head"><div><span className="section-kicker">BUY ME A COFFEE · 1 500 FT / HÓ</span><h2><Crown size={19} /> Premium-igénylések <small>{premiumRequests.length}</small></h2><p>A vásárlás ellenőrzése és aktiválása jelenleg kézi. Csak az ellenőrzött tagságokat hagyd jóvá.</p></div><button className="admin-refresh" onClick={() => void refresh()} disabled={loading}><RefreshCw size={15} className={loading ? 'admin-spinning' : ''} /> Frissítés</button></div>
         {premiumRequests.length === 0 ? <div className="admin-empty">Nincs függő Premium-igénylés.</div> : <div className="admin-premium-requests">{premiumRequests.map((request) => <article className="admin-premium-request" key={request.uid}><span className="admin-premium-avatar"><Crown size={17} /></span><span className="admin-premium-request-copy"><strong>{request.displayName}</strong><small>{request.email}</small><small>{request.requestedAt?.toLocaleString(language === 'en' ? 'en-US' : 'hu-HU') ?? (language === 'en' ? 'Just requested' : 'Most kérte')}</small></span><button className="admin-approve-premium" onClick={() => void approvePremium(request)} disabled={busyUid === request.uid}>{busyUid === request.uid ? <LoaderCircle size={15} className="admin-spinning" /> : <BadgeCheck size={15} />} Jóváhagyás</button></article>)}</div>}

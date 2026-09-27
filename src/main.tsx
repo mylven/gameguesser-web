@@ -15,6 +15,7 @@ import './gamer-theme.css';
 import './themes.css';
 import './avatar.css';
 import './responsive.css';
+import './visits.css';
 import { I18nProvider } from './i18n';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(

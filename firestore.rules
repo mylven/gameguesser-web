@@ -31,6 +31,28 @@ service cloud.firestore {
       allow delete: if isAdmin() || (signedIn() && resource.data.ownerUid == request.auth.uid);
     }
 
+    match /siteVisitors/{visitorId} {
+      // Anonymous, pseudonymous browser counters only: never store IPs or profile data.
+      allow create: if visitorId.matches('^[a-f0-9]{32}$')
+        && request.resource.data.keys().hasOnly(['visitCount', 'lastSeenAt'])
+        && request.resource.data.keys().hasAll(['visitCount', 'lastSeenAt'])
+        && request.resource.data.visitCount is int
+        && request.resource.data.visitCount == 1
+        && request.resource.data.lastSeenAt is timestamp
+        && request.resource.data.lastSeenAt == request.time;
+      allow update: if visitorId.matches('^[a-f0-9]{32}$')
+        && resource.data.keys().hasOnly(['visitCount', 'lastSeenAt'])
+        && request.resource.data.keys().hasOnly(['visitCount', 'lastSeenAt'])
+        && request.resource.data.keys().hasAll(['visitCount', 'lastSeenAt'])
+        && resource.data.visitCount is int
+        && request.resource.data.visitCount is int
+        && request.resource.data.visitCount == resource.data.visitCount + 1
+        && request.resource.data.lastSeenAt is timestamp
+        && request.resource.data.lastSeenAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['visitCount', 'lastSeenAt']);
+      allow read, delete: if isAdmin();
+    }
+
     match /leaderboard/{playerUid} {
       allow read: if true;
       allow create, update: if signedIn()

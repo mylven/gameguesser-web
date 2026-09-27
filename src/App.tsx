@@ -186,6 +186,10 @@ function App() {
   }, [language]);
 
   useEffect(() => {
+    void import('./firebase-store').then(({ recordSitePageOpen }) => recordSitePageOpen()).catch(() => undefined);
+  }, []);
+
+  useEffect(() => {
     if (!auth) return;
     return onAuthStateChanged(auth, (nextUser) => {
       setUser(nextUser);
