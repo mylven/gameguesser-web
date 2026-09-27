@@ -6,14 +6,13 @@ A házigazda két szobatípus közül választhat: **Párbaj** (legfeljebb 2 já
 
 ## Fiók és mentés más eszközre
 
-A regisztráció és az e-mailes bejelentkezés **Firebase Authentication**-t, a felhőmentés **Cloud Firestore**-t használ. Firebase-projekt létrehozása nélkül az alkalmazás továbbra is működik, csak a vendégstatisztikákat menti helyben.
+A regisztráció és az e-mailes bejelentkezés **Firebase Authentication**-t, a felhőmentés **Cloud Firestore**-t használ. A GameGuesser Firebase-projekt azonosítója `gameguesser-web`; a webalkalmazás, az e-mail/jelszó belépés és az európai régióban futó alapértelmezett Firestore-adatbázis már létre lett hozva, a biztonságos Firestore-szabályok telepítve vannak, és a `mylven.github.io` domain engedélyezve van az Authban. Firebase-projekt létrehozása nélkül az alkalmazás továbbra is működik, csak a vendégstatisztikákat menti helyben.
 
-1. Hozz létre egy Firebase-projektet, és adj hozzá egy **Web app** alkalmazást a Firebase Console-ban.
-2. A Firebase **Authentication → Sign-in method** részén kapcsold be az **Email/Password** szolgáltatót. Az **Authentication → Settings → Authorized domains** listában legyen engedélyezve az oldalad GitHub Pages-domainje (például `felhasznalonev.github.io`, egyéni domain esetén pedig az a domain).
-3. Hozz létre egy Firestore-adatbázist, majd publikáld a repository [firestore.rules](firestore.rules) szabályait. Minden felhasználó kizárólag a saját, UID-hoz kötött profiljához férhet hozzá.
-4. Másold a [.env.example](.env.example) fájlt `.env.local` néven, és töltsd ki a Firebase webalkalmazás konfigurációjának értékeivel. Ez a fájl nincs feltöltve GitHubra.
-5. Helyben ellenőrizd az alkalmazást; GitHub Pageshez a GitHub repository **Settings → Secrets and variables → Actions** részén hozd létre a következő repository secret-eket: `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID`.
-6. Töltsd fel a módosításokat a `main` vagy `master` ágra: a Pages-munkafolyamat ezekkel az értékekkel építi és telepíti az oldalt.
+1. A Firebase webkonfiguráció helyben a `.env.local` fájlban van. Ha új gépre klónozod a projektet, másold át a [.env.example](.env.example) fájlt `.env.local` néven, és töltsd ki a saját Firebase Console webalkalmazásának értékeivel. Ezt a fájlt ne töltsd fel GitHubra.
+2. GitHub Pageshez a repository **Settings → Secrets and variables → Actions** részén add meg ezeket a repository secret-eket: `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`, `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID`. Ezek már be vannak állítva a GameGuesser repositoryban.
+3. Az oldal domainje szerepel a Firebase Authentication engedélyezett domainjei között. Új saját domain esetén add hozzá az **Authentication → Settings → Authorized domains** listához.
+
+Ha új Firebase-projektet állítasz be, kapcsold be az **Authentication → Sign-in method → Email/Password** szolgáltatót, hozz létre Cloud Firestore-adatbázist, majd telepítsd a repository [firestore.rules](firestore.rules) szabályait. Minden felhasználó kizárólag a saját, UID-hoz kötött profiljához férhet hozzá.
 
 A felhőmentés tartalmazza a személyes pontszámokat és az elkezdett egyjátékos kört is. Első bejelentkezéskor ezen a böngészőn a korábbi vendégmentést átemeli az új profilba; ezután másik eszközön bejelentkezve a mentett kvíz a **Folytatás** gombbal megnyitható. Az e-mail-címhez tartozó fiók azonosítóját a Firebase Auth kezeli; a jelszavakat a játék nem tárolja.
 
