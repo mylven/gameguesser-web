@@ -4,11 +4,12 @@ import { Peer, type DataConnection } from 'peerjs';
 import { games, steamAppIds, type Game } from './games';
 import { localizeGame } from './game-localization';
 import { AutoTranslate, useI18n } from './i18n';
+import { defaultAvatar, type AvatarId } from './avatars';
 import './battle.css';
 
 type Round = { game: Game; choices: Game[] };
 type Player = string;
-type RoomPlayer = { id: Player; name: string; connected: boolean };
+type RoomPlayer = { id: Player; name: string; avatar: AvatarId; connected: boolean };
 type RoomType = 'duel' | 'group';
 type DuelMode = 'emoji' | 'clues' | 'features' | 'image';
 type DuelSettings = { mode: DuelMode; timeLimitSeconds: number | null; battleMode: boolean };
@@ -30,7 +31,7 @@ type DuelSnapshot = {
   finished: boolean;
 };
 type DuelMessage =
-  | { type: 'join'; name: string }
+  | { type: 'join'; name: string; avatar: AvatarId }
   | { type: 'joined'; players: RoomPlayer[]; roomType: RoomType }
   | { type: 'roomUpdate'; players: RoomPlayer[] }
   | { type: 'closed' }
@@ -38,7 +39,7 @@ type DuelMessage =
   | { type: 'start'; snapshot: DuelSnapshot }
   | { type: 'state'; snapshot: DuelSnapshot }
   | { type: 'answer'; title: string };
-type Props = { ownerUid?: string; ownerName: string; premium: boolean; onOpenPremium: () => void; onExit: () => void };
+type Props = { ownerUid?: string; ownerName: string; ownerAvatar: AvatarId; premium: boolean; onOpenPremium: () => void; onExit: () => void };
 
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const TIMEOUT_ANSWER = '__TIMEOUT__';
@@ -95,6 +96,23 @@ function makeInitialSnapshot(settings: DuelSettings, players: RoomPlayer[], room
   };
 }
 
+function normalizePlayers(players: RoomPlayer[]): RoomPlayer[] {
+  return players.map((player) => ({ ...player, avatar: player.avatar ?? defaultAvatar }));
+}
+
+function normalizeSnapshot(snapshot: DuelSnapshot): DuelSnapshot {
+  const players = normalizePlayers(snapshot.players);
+  return {
+    ...snapshot,
+    players,
+    settings: { ...snapshot.settings, battleMode: snapshot.settings.battleMode ?? false },
+    answerTimes: snapshot.answerTimes ?? Object.fromEntries(players.map((player) => [player.id, null])) as Record<Player, number | null>,
+    health: snapshot.health ?? Object.fromEntries(players.map((player) => [player.id, 1000])) as Record<Player, number>,
+    hitStreaks: snapshot.hitStreaks ?? Object.fromEntries(players.map((player) => [player.id, 0])) as Record<Player, number>,
+    battleEvent: snapshot.battleEvent ?? null,
+  };
+}
+
 function describeBattleEvent(snapshot: DuelSnapshot, language: 'hu' | 'en'): string {
   const event = snapshot.battleEvent;
   if (!event?.attacker || !event.defender) {
@@ -124,7 +142,7 @@ function makePeerOptions() {
   return { config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] } };
 }
 
-function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props) {
+function DuelRoom({ ownerUid, ownerName, ownerAvatar, premium, onOpenPremium, onExit }: Props) {
   const { language } = useI18n();
   const [stage, setStage] = useState<'setup' | 'room' | 'playing'>('setup');
   const [playerName, setPlayerName] = useState(language === 'en' ? 'Player' : 'Játékos');
@@ -313,7 +331,7 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
         setStatus('Új játékos csatlakozik a szobához…');
       } else {
         setStatus('Kapcsolódva a szobához. Várakozás a házigazdára…');
-        connection.send({ type: 'join', name } satisfies DuelMessage);
+        connection.send({ type: 'join', name, avatar: ownerAvatar } satisfies DuelMessage);
       }
     });
     connection.on('data', (raw) => {
@@ -330,7 +348,7 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
             connection.close();
             return;
           }
-          const joiningPlayer = { id: connection.peer, name: message.name || 'Játékos', connected: true };
+          const joiningPlayer = { id: connection.peer, name: message.name || 'Játékos', avatar: message.avatar || defaultAvatar, connected: true };
           const nextPlayers = [...roomPlayersRef.current.filter((player) => player.id !== connection.peer), joiningPlayer];
           updateRoomPlayers(nextPlayers, true);
           connection.send({ type: 'joined', players: nextPlayers, roomType } satisfies DuelMessage);
@@ -341,19 +359,21 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
         return;
       }
       if (message.type === 'joined') {
-        updateRoomPlayers(message.players);
+        updateRoomPlayers(normalizePlayers(message.players));
         setRoomType(message.roomType);
         setStatus('Csatlakoztál. Várj, amíg a házigazda elindítja a párbajt.');
       } else if (message.type === 'roomUpdate') {
-        updateRoomPlayers(message.players);
+        updateRoomPlayers(normalizePlayers(message.players));
       } else if (message.type === 'start') {
-        snapshotRef.current = message.snapshot;
-        setSnapshot(message.snapshot);
+        const normalized = normalizeSnapshot(message.snapshot);
+        snapshotRef.current = normalized;
+        setSnapshot(normalized);
         setPendingAnswer(false);
         setStage('playing');
       } else if (message.type === 'state') {
-        snapshotRef.current = message.snapshot;
-        setSnapshot(message.snapshot);
+        const normalized = normalizeSnapshot(message.snapshot);
+        snapshotRef.current = normalized;
+        setSnapshot(normalized);
         setPendingAnswer(false);
         if (message.snapshot.finished) setStatus('A párbaj véget ért.');
       } else if (message.type === 'closed') {
@@ -397,7 +417,7 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
     setRole('host');
     roomStartedRef.current = false;
     connectionsRef.current.clear();
-    updateRoomPlayers([{ id: 'host', name, connected: true }]);
+    updateRoomPlayers([{ id: 'host', name, avatar: ownerAvatar, connected: true }]);
     const code = makeRoomCode();
     setRoomCode(code);
     setStage('room');
@@ -433,7 +453,7 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
     const peer = new Peer(`gg-player-${Math.random().toString(36).slice(2, 10)}`, makePeerOptions());
     peerRef.current = peer;
     setRole(peer.id);
-    updateRoomPlayers([{ id: peer.id, name, connected: true }]);
+    updateRoomPlayers([{ id: peer.id, name, avatar: ownerAvatar, connected: true }]);
     attachPeerErrors(peer);
     peer.on('open', () => {
       const connection = peer.connect(`gg-${code.toLowerCase()}`, { reliable: true });
@@ -604,8 +624,8 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
         <div className="room-code-display"><span>SZOBAKÓD</span><strong>{roomCode}</strong>{role === 'host' && <button onClick={copyRoomCode} aria-label="Szobakód másolása"><Clipboard size={17} /> {copied ? 'Másolva!' : 'Másolás'}</button>}</div>
         <div className="room-players-multiplayer">
           <div className="room-player-list-heading"><strong><UsersRound size={14} /> Játékosok a szobában</strong><span>{roomPlayers.filter((player) => player.connected).length} csatlakozott{roomType === 'duel' ? ' / 2' : ''}</span></div>
-          <div className="room-player-list">{roomPlayers.map((player, index) => <div className={`room-player-row ${player.connected ? 'player-ready' : 'player-waiting'}`} key={player.id}>
-            <span className="room-player-avatar">{player.id === 'host' ? '👑' : ['🎮', '🕹️', '👾', '🧩', '🚀', '🎯'][index % 6]}</span>
+          <div className="room-player-list">{roomPlayers.map((player) => <div className={`room-player-row ${player.connected ? 'player-ready' : 'player-waiting'}`} key={player.id}>
+            <span className="room-player-avatar">{player.avatar}</span>
             <span className="room-player-name"><strong>{player.name}{player.id === role ? ' (te)' : ''}</strong><small>{player.id === 'host' ? 'HÁZIGAZDA' : player.connected ? 'CSATLAKOZOTT' : 'KILÉPETT'}</small></span>
             <i className="room-player-status" />
           </div>)}
@@ -653,11 +673,11 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
       {stage === 'playing' && snapshot && currentRound && role && !snapshot.finished && <div className="duel-game">
         <div className="duel-game-top"><div className="duel-room-tag"><Swords size={15} /> {snapshot.roomType === 'group' ? 'CSOPORTSZOBA' : 'PÁRBAJ'} <span>·</span> {roomCode}<i>{snapshot.settings.battleMode ? 'ÉLETRE MENŐ CSATA' : duelModes.find((item) => item.id === snapshot.settings.mode)?.title}</i></div><span>({snapshot.roundIndex + 1}/{snapshot.rounds.length})</span></div>
         <div className={`duel-scoreboard ${snapshot.settings.battleMode ? 'battle-scoreboard' : ''}`}>
-          {sortedPlayers.map((player, index) => {
+          {sortedPlayers.map((player) => {
             const health = Math.max(0, Math.min(1000, snapshot.health[player.id] ?? 1000));
             const hitStreak = snapshot.hitStreaks[player.id] ?? 0;
             const multiplier = Math.min(3, 1 + Math.max(0, hitStreak - 1) * 0.5);
-            return <div className={`duel-score-player ${player.id === role ? 'you' : ''}`} key={player.id}><span className="duel-score-avatar">{player.id === 'host' ? '👑' : ['🎮', '🕹️', '👾', '🧩', '🚀', '🎯'][index % 6]}</span><div><strong>{player.name} <small>{player.id === role ? 'TE' : player.id === 'host' ? 'HÁZIGAZDA' : ''}</small></strong>{snapshot.settings.battleMode ? <><span className="battle-health-label"><Heart size={12} /> {`${health} / 1000 ÉLET`}</span><div className="battle-health-track"><span style={{ width: `${health / 10}%` }} /></div><small className="battle-streak"><Zap size={11} /> {`${multiplier.toFixed(1)}× · ${hitStreak} találati sorozat`}</small></> : <span>{snapshot.scores[player.id] ?? 0} pont</span>}</div></div>;
+            return <div className={`duel-score-player ${player.id === role ? 'you' : ''}`} key={player.id}><span className="duel-score-avatar">{player.avatar}</span><div><strong>{player.name} <small>{player.id === role ? 'TE' : player.id === 'host' ? 'HÁZIGAZDA' : ''}</small></strong>{snapshot.settings.battleMode ? <><span className="battle-health-label"><Heart size={12} /> {`${health} / 1000 ÉLET`}</span><div className="battle-health-track"><span style={{ width: `${health / 10}%` }} /></div><small className="battle-streak"><Zap size={11} /> {`${multiplier.toFixed(1)}× · ${hitStreak} találati sorozat`}</small></> : <span>{snapshot.scores[player.id] ?? 0} pont</span>}</div></div>;
           })}
         </div>
         {timeLimit && <div className={`duel-countdown ${secondsRemaining !== null && secondsRemaining <= 5 ? 'urgent' : ''}`}>

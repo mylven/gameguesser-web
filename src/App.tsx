@@ -3,6 +3,7 @@ import { onAuthStateChanged, type User } from 'firebase/auth';
 import { ArrowLeft, ArrowRight, Check, Crown, Flame, Gamepad2, Lightbulb, MessageCircle, RotateCcw, Sparkles, Swords, Trophy, X } from 'lucide-react';
 import { categories, games, loadGameCatalog, refreshGameCatalog, steamAppIds, type Game, type GameCategory } from './games';
 import { localizeGame } from './game-localization';
+import { defaultAvatar, isAvatar, type AvatarId } from './avatars';
 import './discord.css';
 import DuelRoom from './DuelRoom';
 import AccountModal from './AccountModal';
@@ -56,15 +57,16 @@ function loadLocalProfile(owner: string): CloudProfile {
       return {
         stats: normalizeStats(parsed.stats),
         progress: isGameProgress(parsed.progress) ? parsed.progress : null,
+        avatar: isAvatar(parsed.avatar) ? parsed.avatar : defaultAvatar,
       };
     }
     if (owner === 'guest') {
       const legacy = localStorage.getItem('gameguesser-stats');
       if (legacy) return { stats: normalizeStats(JSON.parse(legacy) as Partial<Stats>), progress: null };
     }
-    return { stats: defaultStats, progress: null };
+    return { stats: defaultStats, progress: null, avatar: defaultAvatar };
   } catch {
-    return { stats: defaultStats, progress: null };
+    return { stats: defaultStats, progress: null, avatar: defaultAvatar };
   }
 }
 
@@ -115,6 +117,7 @@ function App() {
   const [streak, setStreak] = useState(0);
   const [roundCorrect, setRoundCorrect] = useState(0);
   const [stats, setStats] = useState<Stats>(() => loadLocalProfile('guest').stats);
+  const [avatar, setAvatar] = useState<AvatarId>(() => loadLocalProfile('guest').avatar ?? defaultAvatar);
   const [progress, setProgress] = useState<GameProgress | null>(() => {
     const saved = loadLocalProfile('guest').progress;
     return isGameProgress(saved) ? saved : null;
@@ -211,6 +214,7 @@ function App() {
             nextProfile = {
               stats: normalizeStats(cloudProfile.stats),
               progress: isGameProgress(cloudProfile.progress) ? cloudProfile.progress : null,
+              avatar: cloudProfile.avatar ?? defaultAvatar,
             };
           } else {
             // First sign-in imports this browser's anonymous progress into the new account.
@@ -229,6 +233,7 @@ function App() {
       }
       if (!active) return;
       setStats(nextProfile.stats);
+      setAvatar(nextProfile.avatar ?? defaultAvatar);
       setProgress(isGameProgress(nextProfile.progress) ? nextProfile.progress : null);
       setProfileOwner(owner);
       setProfileReady(true);
@@ -243,7 +248,7 @@ function App() {
     const nextProgress: GameProgress | null = screen === 'playing' && rounds.length > 0
       ? { mode, category, rounds, roundIndex, answer, wrongAnswers, revealedHints, score, streak, roundCorrect }
       : screen === 'complete' ? null : progress;
-    const nextProfile: CloudProfile = { stats, progress: nextProgress as SavedProgress | null };
+    const nextProfile: CloudProfile = { stats, progress: nextProgress as SavedProgress | null, avatar };
     if (JSON.stringify(progress) !== JSON.stringify(nextProgress)) setProgress(nextProgress);
     try {
       localStorage.setItem(`gameguesser-profile:${profileOwner}`, JSON.stringify(nextProfile));
@@ -263,7 +268,7 @@ function App() {
         .catch(() => setCloudStatus('offline'));
     }, 450);
     return () => window.clearTimeout(timer);
-  }, [profileReady, profileOwner, user?.uid, stats, screen, mode, category, rounds, roundIndex, answer, wrongAnswers, revealedHints, score, streak, roundCorrect, progress]);
+  }, [profileReady, profileOwner, user?.uid, stats, avatar, screen, mode, category, rounds, roundIndex, answer, wrongAnswers, revealedHints, score, streak, roundCorrect, progress]);
 
   const availableGames = useMemo(
     () => category === 'Mind' ? games : games.filter((game) => game.category === category),
@@ -448,7 +453,7 @@ function App() {
           <button className="leaderboard-nav" onClick={() => setScreen('leaderboard')} aria-label="Ranglista megnyitása"><Trophy size={16} /><span>Ranglista</span></button>
           <a className="topbar-discord-link" href="https://discord.gg/8rDPHVJnqz" target="_blank" rel="noopener noreferrer" aria-label={language === 'en' ? 'Join our Discord server' : 'Csatlakozz a Discord-szerverünkhöz'} title={language === 'en' ? 'Join our Discord server' : 'Csatlakozz a Discord-szerverünkhöz'}><MessageCircle size={15} /><span>Discord</span></a>
           <button className={`premium-nav ${isPremium ? 'is-premium' : ''}`} onClick={() => setScreen('premium')} aria-label="GameGuesser Premium"><Crown size={15} /><span>{isPremium ? 'Premium' : 'Premium'}</span></button>
-          {user ? <button className="profile-chip account-chip" onClick={() => setAccountOpen(true)} aria-label="Fiók beállításai"><span className="avatar auth-avatar">{(user.displayName || user.email || 'G').slice(0, 1).toUpperCase()}</span><span>{user.displayName || user.email || 'Fiókom'}</span></button> : <button className="profile-chip account-chip" onClick={() => setAccountOpen(true)} aria-label="Bejelentkezés vagy fiók létrehozása"><span className="avatar">🎮</span><span>Fiók létrehozása</span></button>}
+          {user ? <button className="profile-chip account-chip" onClick={() => setAccountOpen(true)} aria-label="Fiók beállításai"><span className="avatar auth-avatar">{avatar}</span><span>{user.displayName || user.email || 'Fiókom'}</span></button> : <button className="profile-chip account-chip" onClick={() => setAccountOpen(true)} aria-label="Bejelentkezés vagy fiók létrehozása"><span className="avatar">{avatar}</span><span>Fiók létrehozása</span></button>}
         </div>
       </header>
 
@@ -510,7 +515,7 @@ function App() {
           </>
         )}
 
-        {screen === 'duel' && <DuelRoom ownerUid={user?.uid} ownerName={user?.displayName || user?.email || 'Játékos'} premium={isPremium} onOpenPremium={() => setScreen('premium')} onExit={() => setScreen('home')} />}
+        {screen === 'duel' && <DuelRoom ownerUid={user?.uid} ownerName={user?.displayName || user?.email || 'Játékos'} ownerAvatar={avatar} premium={isPremium} onOpenPremium={() => setScreen('premium')} onExit={() => setScreen('home')} />}
         {screen === 'admin' && isAdmin && user && <Suspense fallback={<div className="admin-loading"><span className="account-spinner">◌</span> Admin felület betöltése…</div>}><AdminPanel currentUid={user.uid} onExit={() => setScreen('home')} /></Suspense>}
         {screen === 'leaderboard' && <Suspense fallback={<div className="leaderboard-loading"><span className="account-spinner">◌</span> Ranglista betöltése…</div>}><LeaderboardPanel currentUid={user?.uid ?? null} onExit={() => setScreen('home')} /></Suspense>}
         {screen === 'premium' && <Suspense fallback={<div className="leaderboard-loading"><span className="account-spinner">◌</span> Premium betöltése…</div>}><PremiumPanel isSignedIn={!!user} isPremium={isPremium} requestPending={premiumRequestPending} requestBusy={premiumRequestBusy} requestMessage={premiumRequestMessage} onRequestReview={() => void submitPremiumRequest()} onSignIn={() => { setScreen('home'); setAccountOpen(true); }} onExit={() => setScreen('home')} /></Suspense>}
@@ -565,7 +570,7 @@ function App() {
       </main>
       <div className="site-bottom"><span>GAMEGUESSER</span><span>{language === 'en' ? 'Guess it. Play more. 🕹️' : 'Találd ki. Játssz még. 🕹️'}</span></div>
       {user && cloudStatus !== 'local' && <span className="account-cloud-indicator"><span className={`cloud-indicator-dot ${cloudStatus}`} />{accountLabel}</span>}
-      <AccountModal user={user} isAdmin={isAdmin} open={accountOpen} onClose={() => setAccountOpen(false)} onOpenAdmin={() => { setAccountOpen(false); setScreen('admin'); }} cloudStatus={cloudStatus} />
+      <AccountModal user={user} isAdmin={isAdmin} open={accountOpen} onClose={() => setAccountOpen(false)} onOpenAdmin={() => { setAccountOpen(false); setScreen('admin'); }} cloudStatus={cloudStatus} avatar={avatar} onAvatarChange={setAvatar} />
     </div>
     </AutoTranslate>
   );

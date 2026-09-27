@@ -1,6 +1,7 @@
 import { collection, deleteDoc, doc, getDoc, getDocs, getFirestore, limit, orderBy, query, serverTimestamp, setDoc } from 'firebase/firestore/lite';
 import { auth, firebaseConfigured, type CloudProfile } from './firebase';
 import type { User } from 'firebase/auth';
+import { defaultAvatar, isAvatar } from './avatars';
 
 function userDocument(user: User) {
   if (!firebaseConfigured || !auth) throw new Error('A felhőmentés nincs beállítva.');
@@ -14,6 +15,7 @@ export async function loadCloudProfile(user: User): Promise<CloudProfile | null>
   return {
     stats: data.stats as CloudProfile['stats'],
     progress: (data.progress ?? null) as CloudProfile['progress'],
+    avatar: isAvatar(data.avatar) ? data.avatar : defaultAvatar,
   };
 }
 

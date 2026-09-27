@@ -5,6 +5,7 @@ import {
   setPersistence,
   type User,
 } from 'firebase/auth';
+import type { AvatarId } from './avatars';
 
 const env = import.meta.env;
 const config = {
@@ -45,7 +46,7 @@ export type SavedProgress = {
   roundCorrect: number;
 };
 
-export type CloudProfile = { stats: ProfileStats; progress: SavedProgress | null };
+export type CloudProfile = { stats: ProfileStats; progress: SavedProgress | null; avatar?: AvatarId };
 
 export async function prepareAuth(): Promise<void> {
   if (!auth) throw new Error('A fiókok használatához előbb be kell állítani a Firebase-t.');

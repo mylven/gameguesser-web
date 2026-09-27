@@ -4,8 +4,9 @@ import { ArrowRight, Cloud, KeyRound, LoaderCircle, Mail, Shield, UserPlus, X } 
 import { auth, firebaseConfigured, prepareAuth } from './firebase';
 import { AutoTranslate } from './i18n';
 import type { User } from 'firebase/auth';
+import { avatarOptions, type AvatarId } from './avatars';
 
-type Props = { user: User | null; isAdmin: boolean; open: boolean; onClose: () => void; onOpenAdmin: () => void; cloudStatus: 'local' | 'loading' | 'saving' | 'saved' | 'offline' };
+type Props = { user: User | null; isAdmin: boolean; open: boolean; onClose: () => void; onOpenAdmin: () => void; cloudStatus: 'local' | 'loading' | 'saving' | 'saved' | 'offline'; avatar: AvatarId; onAvatarChange: (avatar: AvatarId) => void };
 type AuthMode = 'login' | 'register';
 
 function messageForError(code: string): string {
@@ -19,7 +20,7 @@ function messageForError(code: string): string {
   return 'Nem sikerült a művelet. Ellenőrizd a Firebase-beállításokat, és próbáld újra.';
 }
 
-function AccountModal({ user, isAdmin, open, onClose, onOpenAdmin, cloudStatus }: Props) {
+function AccountModal({ user, isAdmin, open, onClose, onOpenAdmin, cloudStatus, avatar, onAvatarChange }: Props) {
   const [mode, setMode] = useState<AuthMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -108,7 +109,8 @@ function AccountModal({ user, isAdmin, open, onClose, onOpenAdmin, cloudStatus }
           <span className="section-kicker">FELHŐS JÁTÉKOSPROFIL</span>
           <h2 id="account-title">Szia, {user.displayName || 'játékos'}!</h2>
           <p className="account-description">A mentéseid ehhez a fiókhoz kapcsolódnak, így másik eszközön is folytathatod.</p>
-          <div className="account-current-user"><span className="account-avatar">{(user.displayName || user.email || 'G').slice(0, 1).toUpperCase()}</span><span><strong>{user.displayName || 'GameGuesser-játékos'}</strong><small>{user.email}</small></span><i className={`cloud-indicator-dot ${cloudStatus}`} /><small className="account-save-state">{cloudStatus === 'saved' ? 'Mentve' : cloudStatus === 'saving' || cloudStatus === 'loading' ? 'Mentés…' : 'Helyi mentés'}</small></div>
+          <div className="account-current-user"><span className="account-avatar">{avatar}</span><span><strong>{user.displayName || 'GameGuesser-játékos'}</strong><small>{user.email}</small></span><i className={`cloud-indicator-dot ${cloudStatus}`} /><small className="account-save-state">{cloudStatus === 'saved' ? 'Mentve' : cloudStatus === 'saving' || cloudStatus === 'loading' ? 'Mentés…' : 'Helyi mentés'}</small></div>
+          <div className="avatar-picker"><span className="account-label">Válassz avatart</span><div className="avatar-picker-grid">{avatarOptions.map((option) => <button type="button" key={option} className={option === avatar ? 'selected' : ''} onClick={() => onAvatarChange(option)} aria-label={`Avatar ${option}`} aria-pressed={option === avatar}>{option}</button>)}</div></div>
           {info && <p className="account-message success-message">{info}</p>}
           {error && <p className="account-message error-message" role="alert">{error}</p>}
           {isAdmin && <button className="account-admin-link" onClick={onOpenAdmin}><Shield size={16} /> Admin kezelőfelület <ArrowRight size={16} /></button>}
@@ -117,6 +119,7 @@ function AccountModal({ user, isAdmin, open, onClose, onOpenAdmin, cloudStatus }
           <span className="section-kicker">MENTSD EL A JÁTÉKOD</span>
           <h2 id="account-title">{mode === 'login' ? 'Üdv újra!' : 'Hozz létre fiókot'}</h2>
           <p className="account-description">A pontjaid és a félbehagyott kvízed elérhető marad, ha másik eszközön jelentkezel be.</p>
+          <div className="avatar-picker"><span className="account-label">Válassz avatart</span><div className="avatar-picker-grid">{avatarOptions.map((option) => <button type="button" key={option} className={option === avatar ? 'selected' : ''} onClick={() => onAvatarChange(option)} aria-label={`Avatar ${option}`} aria-pressed={option === avatar}>{option}</button>)}</div></div>
           {!firebaseConfigured && <div className="firebase-setup-note"><strong>Firebase-beállítás szükséges</strong><span>A fiók létrehozásához előbb hozz létre Firebase-projektet, és add meg a webes konfigurációt a .env.local fájlban. A teljes útmutató a README-ben található.</span></div>}
           <form onSubmit={submit} className="account-form">
             {mode === 'register' && <label className="account-label"><span>Játékosnév</span><div className="account-input-wrap"><UserPlus size={16} /><input value={displayName} onChange={(event) => setDisplayName(event.target.value)} maxLength={28} placeholder="Hogy szólítsunk?" autoComplete="nickname" /></div></label>}
