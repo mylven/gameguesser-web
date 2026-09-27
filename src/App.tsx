@@ -475,7 +475,7 @@ function App() {
             {isPremium && <button className="premium-theme-toggle" onClick={togglePremiumTheme}><Crown size={14} /> {premiumTheme ? 'Arany téma bekapcsolva · Váltás' : 'Premium arany téma bekapcsolása'}</button>}
             <section className="duel-promo">
               <div className="duel-promo-icon"><Swords size={22} /></div>
-              <div className="duel-promo-copy"><span>JÁTSSZATOK EGYÜTT</span><strong>Hívd ki a barátod vagy játsszatok együtt!</strong><small>Kétfős párbaj vagy korlátlan létszámú csoportszoba · 10 kérdés</small></div>
+              <div className="duel-promo-copy"><span>JÁTSSZATOK EGYÜTT</span><strong>Hívd ki a barátod vagy játsszatok együtt!</strong><small>Kétfős párbaj vagy korlátlan létszámú csoportszoba · Premium házigazdának 20 kérdés</small></div>
               <button className="duel-promo-button" onClick={() => setScreen('duel')} disabled={!catalogReady}>Játékszoba <ArrowRight size={17} /></button>
             </section>
             <footer className="home-footer"><span>🎯 {accuracy}% pontosság eddig</span><span>Játssz, tanulj, és döntsd meg a rekordod.</span></footer>

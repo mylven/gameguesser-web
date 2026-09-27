@@ -450,7 +450,7 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
           <span className="section-kicker">HÍVD KI A BARÁTAIDAT</span>
           <h1>Ki ismeri jobban<br /><span>a játékokat?</span></h1>
           <p>Hozzatok létre egy szobát, osszátok meg a kódot, és küzdjetek meg játékfelismerő kérdésekben baráti társaságban!</p>
-          <div className="duel-feature-tags"><span><UsersRound size={14} /> Tetszőleges létszám</span><span><Trophy size={14} /> 10 kérdés</span><span><Wifi size={14} /> Valós idejű</span></div>
+          <div className="duel-feature-tags"><span><UsersRound size={14} /> Tetszőleges létszám</span><span><Trophy size={14} /> 10 kérdés · Premium: 20</span><span><Wifi size={14} /> Valós idejű</span></div>
         </div>
         <div className="duel-setup-grid">
           <article className="duel-lobby-card host-card">
@@ -567,7 +567,7 @@ function DuelRoom({ ownerUid, ownerName, premium, onOpenPremium, onExit }: Props
       {stage === 'playing' && snapshot?.finished && role && <div className="duel-result-card">
         <div className="duel-result-trophy">🏆</div><span className="section-kicker">PÁRBAJ VÉGE</span>
         <h1>{sortedPlayers.filter((player) => snapshot.scores[player.id] === winningScore).length > 1 ? 'Döntetlen!' : sortedPlayers[0]?.id === role ? 'Győztél!' : 'Végeredmény!'}</h1>
-        <p>Lejátszottátok mind a 10 kérdést. Íme a végső rangsor:</p>
+        <p>Lejátszottátok mind a {snapshot.rounds.length} kérdést. Íme a végső rangsor:</p>
         <div className="duel-leaderboard">{sortedPlayers.map((player, index) => <div className={`duel-leader-row ${player.id === role ? 'you' : ''}`} key={player.id}><span className="leader-rank">{index + 1}.</span><strong>{player.name}{player.id === role ? ' (te)' : ''}</strong><span>{snapshot.scores[player.id] ?? 0} pont</span>{index === 0 && <Crown size={16} />}</div>)}</div>
         <button className="primary-button" onClick={onExit}>Új párbaj indítása <ArrowRight size={17} /></button>
       </div>}
