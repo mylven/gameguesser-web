@@ -13,6 +13,7 @@ import './leaderboard.css';
 import './premium.css';
 import './gamer-theme.css';
 import './avatar.css';
+import './responsive.css';
 import { I18nProvider } from './i18n';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
