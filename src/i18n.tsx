@@ -17,7 +17,6 @@ const english: Record<string, string> = {
   'Smaragdzöld és napfényes borostyán': 'Emerald green and sunny amber',
   'Synthwave': 'Synthwave',
   'Neonmagenta és retro narancs': 'Neon magenta and retro orange',
-  'Napi kvíz elérhető': 'Daily quiz is live',
   'Streamer Program': 'Streamer Program',
   'STREAMER PROGRAM': 'STREAMER PROGRAM',
   'Jóváhagyott streamerek listája': 'Approved streamer directory',

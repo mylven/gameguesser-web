@@ -513,7 +513,6 @@ function App() {
               </button>)}</div>
             </div>}
           </div>
-          <span className="online-indicator"><i /> Napi kvíz elérhető</span>
           <button className="leaderboard-nav" onClick={() => setScreen('leaderboard')} aria-label="Ranglista megnyitása"><Trophy size={16} /><span>Ranglista</span></button>
           <button className="streamer-directory-nav" onClick={() => setScreen('streamer-directory')} aria-label={language === 'en' ? 'Browse approved streamers' : 'Jóváhagyott streamerek listája'}><UsersRound size={16} /><span>Streamerek</span></button>
           <a className="topbar-discord-link" href="https://discord.gg/8rDPHVJnqz" target="_blank" rel="noopener noreferrer" aria-label={language === 'en' ? 'Join our Discord server' : 'Csatlakozz a Discord-szerverünkhöz'} title={language === 'en' ? 'Join our Discord server' : 'Csatlakozz a Discord-szerverünkhöz'}><MessageCircle size={15} /><span>Discord</span></a>
