@@ -144,6 +144,7 @@ function makePeerOptions() {
 
 function DuelRoom({ ownerUid, playerUid, ownerName, ownerAvatar, premium, onOpenPremium, onExit }: Props) {
   const { language } = useI18n();
+  const isAuthenticated = Boolean(playerUid);
   const [stage, setStage] = useState<'setup' | 'room' | 'playing'>('setup');
   const [playerName, setPlayerName] = useState(language === 'en' ? 'Player' : 'Játékos');
   const [codeInput, setCodeInput] = useState('');
@@ -175,6 +176,10 @@ function DuelRoom({ ownerUid, playerUid, ownerName, ownerAvatar, premium, onOpen
   useEffect(() => {
     setPlayerName((current) => current === 'Játékos' || current === 'Player' ? language === 'en' ? 'Player' : 'Játékos' : current);
   }, [language]);
+
+  useEffect(() => {
+    if (isAuthenticated) setPlayerName(ownerName);
+  }, [isAuthenticated, ownerName]);
 
   useEffect(() => () => {
     connectionRef.current?.close();
@@ -412,7 +417,7 @@ function DuelRoom({ ownerUid, playerUid, ownerName, ownerAvatar, premium, onOpen
   }
 
   function createRoom() {
-    const name = playerName.trim() || 'Játékos';
+    const name = isAuthenticated ? ownerName : playerName.trim() || 'Játékos';
     setPlayerName(name);
     setError('');
     setRole('host');
@@ -443,7 +448,7 @@ function DuelRoom({ ownerUid, playerUid, ownerName, ownerAvatar, premium, onOpen
       setError('A szobakód 6 betűből vagy számból áll.');
       return;
     }
-    const name = playerName.trim() || 'Játékos';
+    const name = isAuthenticated ? ownerName : playerName.trim() || 'Játékos';
     setPlayerName(name);
     setError('');
     roomStartedRef.current = false;
@@ -618,7 +623,7 @@ function DuelRoom({ ownerUid, playerUid, ownerName, ownerAvatar, premium, onOpen
               <button className={`room-type-choice ${roomType === 'duel' ? 'selected' : ''}`} onClick={() => setRoomType('duel')} aria-pressed={roomType === 'duel'}><Swords size={16} /><span><strong>Párbaj</strong><small>Te + 1 ellenfél</small></span></button>
               <button className={`room-type-choice ${roomType === 'group' ? 'selected' : ''}`} onClick={() => { setRoomType('group'); setBattleMode(false); }} aria-pressed={roomType === 'group'}><UsersRound size={16} /><span><strong>Csoportszoba</strong><small>Korlátlan létszám</small></span></button>
             </div>
-            <label className="duel-input-label">Játékosnév<input value={playerName} maxLength={18} onChange={(event) => setPlayerName(event.target.value)} placeholder="Add meg a neved" /></label>
+            <label className="duel-input-label">Játékosnév<input value={playerName} maxLength={18} onChange={(event) => setPlayerName(event.target.value)} placeholder="Add meg a neved" disabled={isAuthenticated} /></label>
             <button className="primary-button duel-action" onClick={createRoom} disabled={!!peerRef.current}>{roomType === 'group' ? 'Csoportszobát hozok létre' : 'Párbajszobát hozok létre'} <ArrowRight size={17} /></button>
           </article>
           <div className="duel-or"><span>VAGY</span></div>
@@ -627,7 +632,7 @@ function DuelRoom({ ownerUid, playerUid, ownerName, ownerAvatar, premium, onOpen
             <span className="lobby-step">02 · CSATLAKOZÁS</span>
             <h2>Csatlakozás kóddal</h2>
             <p>Kérd el a szobakódot a házigazdától, és csatlakozz a közös játékhoz.</p>
-            <label className="duel-input-label">Játékosnév<input value={playerName} maxLength={18} onChange={(event) => setPlayerName(event.target.value)} placeholder="Add meg a neved" /></label>
+            <label className="duel-input-label">Játékosnév<input value={playerName} maxLength={18} onChange={(event) => setPlayerName(event.target.value)} placeholder="Add meg a neved" disabled={isAuthenticated} /></label>
             <label className="duel-input-label room-code-input-label">Szobakód<input value={codeInput} maxLength={6} onChange={(event) => setCodeInput(event.target.value.toUpperCase())} placeholder="PL. K7M4TX" autoComplete="off" /></label>
             <button className="secondary-button duel-action" onClick={joinRoom} disabled={!!peerRef.current}>Csatlakozás <ArrowRight size={16} /></button>
           </article>
