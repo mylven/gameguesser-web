@@ -331,7 +331,7 @@ function App() {
       <header className="topbar">
         <button className="brand" onClick={() => setScreen('home')} aria-label="Vissza a főoldalra">
           <span className="brand-mark"><Gamepad2 size={22} strokeWidth={2.4} /></span>
-          <span>game<span className="brand-accent">guesser</span><small>.gg</small></span>
+          <span>game<span className="brand-accent">guesser</span></span>
         </button>
         <div className="topbar-right">
           <span className="online-indicator"><i /> Napi kvíz elérhető</span>
@@ -445,7 +445,7 @@ function App() {
           </section>
         )}
       </main>
-      <div className="site-bottom"><span>GAMEGUESSER <b>GG</b></span><span>Találd ki. Játssz még. 🕹️</span></div>
+      <div className="site-bottom"><span>GAMEGUESSER</span><span>Találd ki. Játssz még. 🕹️</span></div>
       {user && cloudStatus !== 'local' && <span className="account-cloud-indicator"><span className={`cloud-indicator-dot ${cloudStatus}`} />{accountLabel}</span>}
       <AccountModal user={user} isAdmin={isAdmin} open={accountOpen} onClose={() => setAccountOpen(false)} onOpenAdmin={() => { setAccountOpen(false); setScreen('admin'); }} cloudStatus={cloudStatus} />
     </div>
