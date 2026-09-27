@@ -1,9 +1,10 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { onAuthStateChanged, type User } from 'firebase/auth';
-import { ArrowLeft, ArrowRight, Check, Crown, Flame, Gamepad2, Lightbulb, MessageCircle, RotateCcw, Sparkles, Swords, Trophy, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Crown, Flame, Gamepad2, Lightbulb, MessageCircle, Palette, RotateCcw, Sparkles, Swords, Trophy, X } from 'lucide-react';
 import { categories, games, loadGameCatalog, refreshGameCatalog, steamAppIds, type Game, type GameCategory } from './games';
 import { localizeGame } from './game-localization';
 import { defaultAvatar, isAvatar, type AvatarId } from './avatars';
+import { isThemeId, siteThemes, type ThemeId } from './themes';
 import './discord.css';
 import DuelRoom from './DuelRoom';
 import AccountModal from './AccountModal';
@@ -135,6 +136,28 @@ function App() {
   const [accountOpen, setAccountOpen] = useState(false);
   const [liveSessionId, setLiveSessionId] = useState<string | null>(null);
   const [premiumTheme, setPremiumTheme] = useState(() => localStorage.getItem('gameguesser-premium-theme') === 'true');
+  const [themeId, setThemeId] = useState<ThemeId>(() => {
+    const savedTheme = localStorage.getItem('gameguesser-theme');
+    return isThemeId(savedTheme) ? savedTheme : 'arcade';
+  });
+  const [themePickerOpen, setThemePickerOpen] = useState(false);
+  const themePickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!themePickerOpen) return;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (event.target instanceof Node && !themePickerRef.current?.contains(event.target)) setThemePickerOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setThemePickerOpen(false);
+    };
+    document.addEventListener('pointerdown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [themePickerOpen]);
 
   useEffect(() => {
     let active = true;
@@ -433,13 +456,19 @@ function App() {
     });
   }
 
+  function selectTheme(nextTheme: ThemeId) {
+    localStorage.setItem('gameguesser-theme', nextTheme);
+    setThemeId(nextTheme);
+    setThemePickerOpen(false);
+  }
+
   const roundCount = rounds.length;
   const accuracy = stats.questionsPlayed === 0 ? 0 : Math.round((stats.correct / stats.questionsPlayed) * 100);
   const accountLabel = cloudStatus === 'saving' || cloudStatus === 'loading' ? 'Mentés…' : cloudStatus === 'offline' ? 'Offline mentés' : 'Felhőbe mentve';
 
   return (
     <AutoTranslate>
-    <div className={`app-shell ${premiumTheme && isPremium ? 'premium-theme' : ''}`}>
+    <div className={`app-shell ${premiumTheme && isPremium ? 'premium-theme' : ''}`} data-theme={themeId}>
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
       <header className="topbar">
@@ -449,6 +478,17 @@ function App() {
         </button>
         <div className="topbar-right">
           <div className="language-switch" aria-label="Language / Nyelv"><button className={language === 'hu' ? 'selected' : ''} onClick={() => setLanguage('hu')} aria-pressed={language === 'hu'}>HU</button><button className={language === 'en' ? 'selected' : ''} onClick={() => setLanguage('en')} aria-pressed={language === 'en'}>EN</button></div>
+          <div className="theme-picker" ref={themePickerRef}>
+            <button className="theme-picker-trigger" onClick={() => setThemePickerOpen((open) => !open)} aria-expanded={themePickerOpen} aria-haspopup="dialog" aria-label={language === 'en' ? 'Choose site theme' : 'Oldaltéma kiválasztása'} title={language === 'en' ? 'Choose site theme' : 'Oldaltéma kiválasztása'}><Palette size={15} /><span>{language === 'en' ? 'Themes' : 'Témák'}</span></button>
+            {themePickerOpen && <div className="theme-picker-popover" role="dialog" aria-label={language === 'en' ? 'Choose a theme' : 'Válassz témát'}>
+              <div className="theme-picker-heading"><strong>{language === 'en' ? 'Choose your look' : 'Válaszd ki a stílusod'}</strong><span>{language === 'en' ? 'The choice is saved in this browser.' : 'A választás ebben a böngészőben megmarad.'}</span></div>
+              <div className="theme-picker-options">{siteThemes.map((theme) => <button key={theme.id} className="theme-option" style={{ '--theme-option-accent': theme.swatches[0] } as React.CSSProperties} onClick={() => selectTheme(theme.id)} aria-pressed={themeId === theme.id}>
+                <span className="theme-option-swatches" aria-hidden="true">{theme.swatches.map((swatch) => <i key={swatch} style={{ '--swatch': swatch } as React.CSSProperties} />)}</span>
+                <span className="theme-option-copy"><strong>{theme.name}</strong><small>{theme.description}</small></span>
+                {themeId === theme.id && <Check size={15} className="theme-option-check" />}
+              </button>)}</div>
+            </div>}
+          </div>
           <span className="online-indicator"><i /> Napi kvíz elérhető</span>
           <button className="leaderboard-nav" onClick={() => setScreen('leaderboard')} aria-label="Ranglista megnyitása"><Trophy size={16} /><span>Ranglista</span></button>
           <a className="topbar-discord-link" href="https://discord.gg/8rDPHVJnqz" target="_blank" rel="noopener noreferrer" aria-label={language === 'en' ? 'Join our Discord server' : 'Csatlakozz a Discord-szerverünkhöz'} title={language === 'en' ? 'Join our Discord server' : 'Csatlakozz a Discord-szerverünkhöz'}><MessageCircle size={15} /><span>Discord</span></a>

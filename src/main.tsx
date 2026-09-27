@@ -12,6 +12,7 @@ import './admin.css';
 import './leaderboard.css';
 import './premium.css';
 import './gamer-theme.css';
+import './themes.css';
 import './avatar.css';
 import './responsive.css';
 import { I18nProvider } from './i18n';
