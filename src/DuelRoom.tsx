@@ -9,7 +9,7 @@ import './battle.css';
 
 type Round = { game: Game; choices: Game[] };
 type Player = string;
-type RoomPlayer = { id: Player; name: string; avatar: AvatarId; connected: boolean };
+type RoomPlayer = { id: Player; name: string; avatar: AvatarId; premium: boolean; connected: boolean };
 type RoomType = 'duel' | 'group';
 type DuelMode = 'emoji' | 'clues' | 'features' | 'image';
 type DuelSettings = { mode: DuelMode; timeLimitSeconds: number | null; battleMode: boolean };
@@ -31,7 +31,7 @@ type DuelSnapshot = {
   finished: boolean;
 };
 type DuelMessage =
-  | { type: 'join'; name: string; avatar: AvatarId }
+  | { type: 'join'; name: string; avatar: AvatarId; premium: boolean }
   | { type: 'joined'; players: RoomPlayer[]; roomType: RoomType }
   | { type: 'roomUpdate'; players: RoomPlayer[] }
   | { type: 'closed' }
@@ -97,7 +97,11 @@ function makeInitialSnapshot(settings: DuelSettings, players: RoomPlayer[], room
 }
 
 function normalizePlayers(players: RoomPlayer[]): RoomPlayer[] {
-  return players.map((player) => ({ ...player, avatar: player.avatar ?? defaultAvatar }));
+  return players.map((player) => ({ ...player, avatar: player.avatar ?? defaultAvatar, premium: player.premium ?? false }));
+}
+
+function baseDamageMultiplier(player: RoomPlayer | undefined): number {
+  return player?.premium ? 1.5 : 1;
 }
 
 function normalizeSnapshot(snapshot: DuelSnapshot): DuelSnapshot {
@@ -298,7 +302,8 @@ function DuelRoom({ ownerUid, playerUid, ownerName, ownerAvatar, premium, onOpen
           const advantageSeconds = Math.max(0, ((answerTimes[defender] ?? answerAt) - (answerTimes[attacker] ?? answerAt)) / 1000);
           const timeLimit = current.settings.timeLimitSeconds ?? 30;
           const baseDamage = Math.round(50 + 450 * Math.min(1, advantageSeconds / timeLimit));
-          const multiplier = Math.min(3, 1 + (hitStreaks[attacker] ?? 0) * 0.5);
+          const attackingPlayer = current.players.find((member) => member.id === attacker);
+          const multiplier = Math.min(3, baseDamageMultiplier(attackingPlayer) + (hitStreaks[attacker] ?? 0) * 0.5);
           const damage = Math.round(baseDamage * multiplier);
           health[defender] = Math.max(0, (health[defender] ?? 1000) - damage);
           hitStreaks[attacker] = (hitStreaks[attacker] ?? 0) + 1;
@@ -337,7 +342,7 @@ function DuelRoom({ ownerUid, playerUid, ownerName, ownerAvatar, premium, onOpen
         setStatus('Új játékos csatlakozik a szobához…');
       } else {
         setStatus('Kapcsolódva a szobához. Várakozás a házigazdára…');
-        connection.send({ type: 'join', name, avatar: ownerAvatar } satisfies DuelMessage);
+        connection.send({ type: 'join', name, avatar: ownerAvatar, premium } satisfies DuelMessage);
       }
     });
     connection.on('data', (raw) => {
@@ -354,7 +359,7 @@ function DuelRoom({ ownerUid, playerUid, ownerName, ownerAvatar, premium, onOpen
             connection.close();
             return;
           }
-          const joiningPlayer = { id: connection.peer, name: message.name || 'Játékos', avatar: message.avatar || defaultAvatar, connected: true };
+          const joiningPlayer = { id: connection.peer, name: message.name || 'Játékos', avatar: message.avatar || defaultAvatar, premium: message.premium === true, connected: true };
           const nextPlayers = [...roomPlayersRef.current.filter((player) => player.id !== connection.peer), joiningPlayer];
           updateRoomPlayers(nextPlayers, true);
           connection.send({ type: 'joined', players: nextPlayers, roomType } satisfies DuelMessage);
@@ -423,7 +428,7 @@ function DuelRoom({ ownerUid, playerUid, ownerName, ownerAvatar, premium, onOpen
     setRole('host');
     roomStartedRef.current = false;
     connectionsRef.current.clear();
-    updateRoomPlayers([{ id: 'host', name, avatar: ownerAvatar, connected: true }]);
+    updateRoomPlayers([{ id: 'host', name, avatar: ownerAvatar, premium, connected: true }]);
     const code = makeRoomCode();
     setRoomCode(code);
     setStage('room');
@@ -459,7 +464,7 @@ function DuelRoom({ ownerUid, playerUid, ownerName, ownerAvatar, premium, onOpen
     const peer = new Peer(`gg-player-${Math.random().toString(36).slice(2, 10)}`, makePeerOptions());
     peerRef.current = peer;
     setRole(peer.id);
-    updateRoomPlayers([{ id: peer.id, name, avatar: ownerAvatar, connected: true }]);
+    updateRoomPlayers([{ id: peer.id, name, avatar: ownerAvatar, premium, connected: true }]);
     attachPeerErrors(peer);
     peer.on('open', () => {
       const connection = peer.connect(`gg-${code.toLowerCase()}`, { reliable: true });
@@ -699,7 +704,7 @@ function DuelRoom({ ownerUid, playerUid, ownerName, ownerAvatar, premium, onOpen
           {sortedPlayers.map((player) => {
             const health = Math.max(0, Math.min(1000, snapshot.health[player.id] ?? 1000));
             const hitStreak = snapshot.hitStreaks[player.id] ?? 0;
-            const multiplier = Math.min(3, 1 + Math.max(0, hitStreak - 1) * 0.5);
+            const multiplier = Math.min(3, baseDamageMultiplier(player) + Math.max(0, hitStreak - 1) * 0.5);
             return <div className={`duel-score-player ${player.id === role ? 'you' : ''}`} key={player.id}><span className="duel-score-avatar">{player.avatar}</span><div><strong>{player.name} <small>{player.id === role ? 'TE' : player.id === 'host' ? 'HÁZIGAZDA' : ''}</small></strong>{snapshot.settings.battleMode ? <><span className="battle-health-label"><Heart size={12} /> {`${health} / 1000 ÉLET`}</span><div className="battle-health-track"><span style={{ width: `${health / 10}%` }} /></div><small className="battle-streak"><Zap size={11} /> {`${multiplier.toFixed(1)}× · ${hitStreak} találati sorozat`}</small></> : <span>{snapshot.scores[player.id] ?? 0} pont</span>}</div></div>;
           })}
         </div>
