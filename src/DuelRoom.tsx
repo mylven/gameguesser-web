@@ -39,7 +39,7 @@ type DuelMessage =
   | { type: 'start'; snapshot: DuelSnapshot }
   | { type: 'state'; snapshot: DuelSnapshot }
   | { type: 'answer'; title: string };
-type Props = { ownerUid?: string; ownerName: string; ownerAvatar: AvatarId; premium: boolean; onOpenPremium: () => void; onExit: () => void };
+type Props = { ownerUid?: string; playerUid?: string; ownerName: string; ownerAvatar: AvatarId; premium: boolean; onOpenPremium: () => void; onExit: () => void };
 
 const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const TIMEOUT_ANSWER = '__TIMEOUT__';
@@ -142,7 +142,7 @@ function makePeerOptions() {
   return { config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] } };
 }
 
-function DuelRoom({ ownerUid, ownerName, ownerAvatar, premium, onOpenPremium, onExit }: Props) {
+function DuelRoom({ ownerUid, playerUid, ownerName, ownerAvatar, premium, onOpenPremium, onExit }: Props) {
   const { language } = useI18n();
   const [stage, setStage] = useState<'setup' | 'room' | 'playing'>('setup');
   const [playerName, setPlayerName] = useState(language === 'en' ? 'Player' : 'Játékos');
@@ -170,6 +170,7 @@ function DuelRoom({ ownerUid, ownerName, ownerAvatar, premium, onOpenPremium, on
   const roomStartedRef = useRef(false);
   const snapshotRef = useRef<DuelSnapshot | null>(null);
   const liveSessionIdRef = useRef<string | null>(null);
+  const duelResultSavedRef = useRef<string | null>(null);
 
   useEffect(() => {
     setPlayerName((current) => current === 'Játékos' || current === 'Player' ? language === 'en' ? 'Player' : 'Játékos' : current);
@@ -573,6 +574,23 @@ function DuelRoom({ ownerUid, ownerName, ownerAvatar, premium, onOpenPremium, on
     }, 25_000);
     return () => window.clearInterval(heartbeat);
   }, [role, stage, snapshot?.roundIndex, snapshot?.finished, ownerUid, roomCode]);
+
+  useEffect(() => {
+    if (!playerUid || !snapshot?.finished || !role || duelResultSavedRef.current === `${roomCode}:${snapshot.roundIndex}`) return;
+    const myPlayer = snapshot.players.find((player) => player.id === role);
+    if (!myPlayer) return;
+    const winner = tiedPlayers.length > 1 ? null : sortedPlayers[0]?.id;
+    duelResultSavedRef.current = `${roomCode}:${snapshot.roundIndex}`;
+    void import('./firebase').then(async ({ auth }) => {
+      if (!auth?.currentUser || auth.currentUser.uid !== playerUid) return;
+      const { saveDuelResult } = await import('./firebase-store');
+      await saveDuelResult(auth.currentUser, {
+        displayName: myPlayer.name,
+        won: winner === role,
+        score: snapshot.scores[role] ?? 0,
+      });
+    }).catch(() => undefined);
+  }, [playerUid, snapshot?.finished, snapshot?.roundIndex, role, roomCode, sortedPlayers, tiedPlayers]);
 
   return (
     <AutoTranslate>

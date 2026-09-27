@@ -63,6 +63,40 @@ export async function listLeaderboard(): Promise<LeaderboardEntry[]> {
   });
 }
 
+export type DuelLeaderboardEntry = {
+  id: string;
+  displayName: string;
+  wins: number;
+  matches: number;
+  totalScore: number;
+};
+
+export async function saveDuelResult(user: User, result: { displayName: string; won: boolean; score: number }): Promise<void> {
+  if (!auth || !firebaseConfigured || auth.currentUser?.uid !== user.uid) return;
+  await setDoc(doc(getFirestore(auth.app), 'duelLeaderboard', user.uid), {
+    displayName: result.displayName.trim().slice(0, 32) || `Játékos ${user.uid.slice(-4)}`,
+    wins: increment(result.won ? 1 : 0),
+    matches: increment(1),
+    totalScore: increment(Math.max(0, Math.floor(result.score))),
+    updatedAt: serverTimestamp(),
+  }, { merge: true });
+}
+
+export async function listDuelLeaderboard(): Promise<DuelLeaderboardEntry[]> {
+  if (!auth || !firebaseConfigured) throw new Error('A párbajrangsor felhőszolgáltatása nincs beállítva.');
+  const snapshots = await getDocs(query(collection(getFirestore(auth.app), 'duelLeaderboard'), orderBy('wins', 'desc'), limit(100)));
+  return snapshots.docs.map((snapshot) => {
+    const data = snapshot.data();
+    return {
+      id: snapshot.id,
+      displayName: typeof data.displayName === 'string' ? data.displayName : 'Játékos',
+      wins: Math.max(0, Number(data.wins) || 0),
+      matches: Math.max(0, Number(data.matches) || 0),
+      totalScore: Math.max(0, Number(data.totalScore) || 0),
+    };
+  });
+}
+
 export async function hasAdminAccess(user: User): Promise<boolean> {
   if (!firebaseConfigured || !auth) return false;
   const adminSnapshot = await getDoc(doc(getFirestore(auth.app), 'admins', user.uid));
@@ -183,6 +217,7 @@ export async function deletePlayerProfile(uid: string): Promise<void> {
   await Promise.all([
     deleteDoc(doc(database, 'users', uid)),
     deleteDoc(doc(database, 'leaderboard', uid)),
+    deleteDoc(doc(database, 'duelLeaderboard', uid)),
   ]);
 }
 

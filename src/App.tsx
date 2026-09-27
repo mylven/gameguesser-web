@@ -559,7 +559,7 @@ function App() {
           </>
         )}
 
-        {screen === 'duel' && <DuelRoom ownerUid={user?.uid} ownerName={user?.displayName || user?.email || 'Játékos'} ownerAvatar={avatar} premium={isPremium} onOpenPremium={() => setScreen('premium')} onExit={() => setScreen('home')} />}
+        {screen === 'duel' && <DuelRoom ownerUid={user?.uid} playerUid={user?.uid} ownerName={user?.displayName || user?.email || 'Játékos'} ownerAvatar={avatar} premium={isPremium} onOpenPremium={() => setScreen('premium')} onExit={() => setScreen('home')} />}
         {screen === 'admin' && isAdmin && user && <Suspense fallback={<div className="admin-loading"><span className="account-spinner">◌</span> Admin felület betöltése…</div>}><AdminPanel currentUid={user.uid} onExit={() => setScreen('home')} /></Suspense>}
         {screen === 'leaderboard' && <Suspense fallback={<div className="leaderboard-loading"><span className="account-spinner">◌</span> Ranglista betöltése…</div>}><LeaderboardPanel currentUid={user?.uid ?? null} onExit={() => setScreen('home')} /></Suspense>}
         {screen === 'premium' && <Suspense fallback={<div className="leaderboard-loading"><span className="account-spinner">◌</span> Premium betöltése…</div>}><PremiumPanel isSignedIn={!!user} isPremium={isPremium} requestPending={premiumRequestPending} requestBusy={premiumRequestBusy} requestMessage={premiumRequestMessage} onRequestReview={() => void submitPremiumRequest()} onSignIn={() => { setScreen('home'); setAccountOpen(true); }} onExit={() => setScreen('home')} /></Suspense>}
